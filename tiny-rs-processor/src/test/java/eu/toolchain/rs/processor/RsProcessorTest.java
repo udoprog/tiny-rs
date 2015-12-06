@@ -55,6 +55,11 @@ public class RsProcessorTest {
         verifyProcessorFor("InjectBindings");
     }
 
+    @Test
+    public void testSpecialParameters() {
+        verifyProcessorFor("SpecialParameters");
+    }
+
     static void verifyProcessorFor(String name) {
         verifyProcessorFor(name, String.format(RsUtils.BINDING_NAME_FORMAT, name));
     }

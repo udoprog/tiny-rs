@@ -267,6 +267,13 @@ public class RsClassProcessor {
                         handleHeaderParam(ctx, variables, parameter, headerParam, defaultValue));
             });
 
+            if (TypeName.get(parameter.asType()).equals(utils.rsRequestContext())) {
+                variables.add("ctx");
+                consumer.add(Result.ok(builder -> {
+                    // do nothing
+                }));
+            }
+
             if (consumer.size() > 1) {
                 consumers.add(Result.brokenElement(
                         "Only one of @PathParam, @QueryParam, or @HeaderParam may be present "
