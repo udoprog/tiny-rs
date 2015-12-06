@@ -35,6 +35,7 @@ import javax.ws.rs.DELETE;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
 import javax.ws.rs.HeaderParam;
+import javax.ws.rs.HttpMethod;
 import javax.ws.rs.OPTIONS;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
@@ -163,7 +164,7 @@ public class RsUtils {
         }
 
         if (type instanceof NoType) {
-            final NoType no = (NoType)type;
+            final NoType no = (NoType) type;
 
             if (no.getKind() == TypeKind.VOID) {
                 return elements.getTypeElement(VOID).asType();
@@ -221,7 +222,8 @@ public class RsUtils {
     }
 
     public Optional<Result<RsInjectBindingMirror>> rsInjectBinding(final Element element) {
-        return annotation(element, RS_INJECT_BINDING).map(a -> RsInjectBindingMirror.getFor(this, element, a));
+        return annotation(element, RS_INJECT_BINDING)
+                .map(a -> RsInjectBindingMirror.getFor(this, element, a));
     }
 
     public Optional<Result<PathMirror>> path(final Element element) {
@@ -255,8 +257,7 @@ public class RsUtils {
     }
 
     public Optional<Result<SuspendedMirror>> suspended(final Element element) {
-        return annotation(element, SUSPENDED)
-                .map(a -> SuspendedMirror.getFor(this, element, a));
+        return annotation(element, SUSPENDED).map(a -> SuspendedMirror.getFor(this, element, a));
     }
 
     public Set<TypeElement> annotations() {
@@ -384,31 +385,77 @@ public class RsUtils {
         return ClassName.get(elements.getTypeElement(ASYNC_RESPONSE));
     }
 
-    public TypeMirror firstParameter(TypeMirror parent) {
+    /**
+     * Gets the first generic parameter for the given type.
+     *
+     * @param parent The type to get the parameter for.
+     * @return The first type, if available.
+     */
+    public Optional<? extends TypeMirror> firstParameter(final TypeMirror parent) {
         if (!(parent instanceof DeclaredType)) {
             throw new IllegalArgumentException("Not a declared type: " + parent);
         }
 
-        final DeclaredType declared = (DeclaredType) parent;
-
-        List<? extends TypeMirror> arguments = declared.getTypeArguments();
-
-        if (arguments.isEmpty()) {
-            throw new IllegalArgumentException("No type arguments for type: " + parent);
-        }
-
-        return arguments.iterator().next();
+        return DeclaredType.class.cast(parent).getTypeArguments().stream().findFirst();
     }
 
-    public String mappingMethod(ExecutableElement method) {
+    /**
+     * Get the mapping method name for the given element.
+     *
+     * @param method The element to get the name for.
+     * @return The mapping name of the element.
+     */
+    public String mappingMethod(final ExecutableElement method) {
         return String.format(MAPPING_METHOD_FORMAT, method.getSimpleName());
     }
 
-    public TypeName greatestCommonType(final LinkedHashSet<TypeMirror> types) {
-        return greatestCommonType(types, ImmutableSet.of());
+    /**
+     * Find the greatest common super-type between a list of types.
+     *
+     * Most likely there will be more than one candidate. Matching types are looked for in
+     * breadth-first order, so the first common type found will be the one returned.
+     *
+     * @param types Types to match between.
+     * @return A greatest common super type.
+     */
+    public TypeName greatestCommonSuperType(final LinkedHashSet<TypeMirror> types) {
+        return greatestCommonSuperType(types, ImmutableSet.of());
     }
 
-    public TypeName greatestCommonType(final LinkedHashSet<TypeMirror> types,
+    /**
+     * Get first method annotation from the given element. Fails with broken result on multiple
+     * annotations present, returns empty if none.
+     *
+     * @param element Element to get annotations for.
+     * @return An optional result containing the annotation.
+     */
+    public Optional<Result<String>> method(final Element element) {
+        final List<String> methods = new ArrayList<>();
+
+        annotation(element, GET).ifPresent(v -> methods.add(HttpMethod.GET));
+        annotation(element, POST).ifPresent(v -> methods.add(HttpMethod.POST));
+        annotation(element, PUT).ifPresent(v -> methods.add(HttpMethod.PUT));
+        annotation(element, DELETE).ifPresent(v -> methods.add(HttpMethod.DELETE));
+        annotation(element, OPTIONS).ifPresent(v -> methods.add(HttpMethod.OPTIONS));
+
+        if (methods.size() > 1) {
+            return Optional.of(Result.brokenElement(
+                    "Only one of @GET, @POST, @PUT, @DELETE, or @OPTIONS may be present", element));
+        }
+
+        return methods.stream().findFirst().map(Result::ok);
+    }
+
+    public AnnotationSpec generatedAnnotation() {
+        return AnnotationSpec.builder(ClassName.get(GENERATED_PACKAGE, GENERATED))
+                .addMember("value", "$S", RS_PROCESSOR).build();
+    }
+
+    public AnnotationSpec injectAnnotation() {
+        return AnnotationSpec.builder(ClassName.get(INJECT_PACKAGE, INJECT)).build();
+    }
+
+    private TypeName greatestCommonSuperType(final LinkedHashSet<TypeMirror> types,
             final Set<TypeElement> seen) {
         if (types.size() == 1) {
             return TypeName.get(types.iterator().next());
@@ -460,7 +507,7 @@ public class RsUtils {
 
             final Set<TypeElement> nextSeen =
                     ImmutableSet.<TypeElement> builder().addAll(seen).add(raw).build();
-            final TypeName type = greatestCommonType(parameterTypes, nextSeen);
+            final TypeName type = greatestCommonSuperType(parameterTypes, nextSeen);
             parameters.add(type);
         }
 
@@ -494,34 +541,5 @@ public class RsUtils {
         }
 
         return set;
-    }
-
-    public boolean hasGET(final Element element) {
-        return annotation(element, GET).isPresent();
-    }
-
-    public boolean hasPOST(final Element element) {
-        return annotation(element, POST).isPresent();
-    }
-
-    public boolean hasPUT(final Element element) {
-        return annotation(element, PUT).isPresent();
-    }
-
-    public boolean hasDELETE(final Element element) {
-        return annotation(element, DELETE).isPresent();
-    }
-
-    public boolean hasOPTIONS(final Element element) {
-        return annotation(element, OPTIONS).isPresent();
-    }
-
-    public AnnotationSpec generatedAnnotation() {
-        return AnnotationSpec.builder(ClassName.get(GENERATED_PACKAGE, GENERATED))
-                .addMember("value", "$S", RS_PROCESSOR).build();
-    }
-
-    public AnnotationSpec injectAnnotation() {
-        return AnnotationSpec.builder(ClassName.get(INJECT_PACKAGE, INJECT)).build();
     }
 }

@@ -1,6 +1,7 @@
 package eu.toolchain.rs.processor;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -16,12 +17,12 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
-import javax.ws.rs.HttpMethod;
 
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.squareup.javapoet.FieldSpec;
 import com.squareup.javapoet.JavaFile;
@@ -44,6 +45,9 @@ import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
 public class RsClassProcessor {
+    /* skips methods having any of the given modifiers */
+    public static final ImmutableSet<Modifier> SKIP_MODIFIERS =
+            ImmutableSet.of(Modifier.PRIVATE, Modifier.PROTECTED, Modifier.STATIC);
     public static final List<String> DEFAULT_PATH = ImmutableList.of();
     public static final CharMatcher SLASH = CharMatcher.anyOf("/");
     public static final Splitter SLASH_SPLITTER = Splitter.on(SLASH);
@@ -81,25 +85,30 @@ public class RsClassProcessor {
             final ImmutableList.Builder<ExecutableElement> methods = ImmutableList.builder();
 
             for (final Element enclosed : element.getEnclosedElements()) {
+                /* match methods */
                 if (enclosed.getKind() != ElementKind.METHOD) {
                     continue;
                 }
 
-                if (enclosed.getModifiers().contains(Modifier.PRIVATE)) {
+                /* skip inaccessible methods (e.g. static, private) */
+                if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
                     continue;
                 }
 
                 final ExecutableElement executable = (ExecutableElement) enclosed;
 
-                method(executable).ifPresent(method -> {
+                /* annotated with a method annotation, like @GET */
+                utils.method(executable).ifPresent(resultMethod -> {
+                    final Result<Consumer<Builder>> endpoint = resultMethod
+                            .flatMap(method -> endpointSetup(executable, instanceField, rootPath, method));
+
                     methods.add(executable);
                     returnTypes.add(utils.box(executable.getReturnType()));
-                    unverifiedHandlers
-                            .add(endpointSetup(executable, instanceField, rootPath, method));
+                    unverifiedHandlers.add(endpoint);
                 });
             }
 
-            final TypeName routesReturnType = utils.greatestCommonType(returnTypes);
+            final TypeName routesReturnType = utils.greatestCommonSuperType(returnTypes);
 
             unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
 
@@ -148,30 +157,6 @@ public class RsClassProcessor {
                 .orElseGet(() -> Result.ok(ImmutableList.of()));
     }
 
-    private Optional<String> method(final Element element) {
-        if (utils.hasGET(element)) {
-            return Optional.of(HttpMethod.GET);
-        }
-
-        if (utils.hasPOST(element)) {
-            return Optional.of(HttpMethod.POST);
-        }
-
-        if (utils.hasPUT(element)) {
-            return Optional.of(HttpMethod.PUT);
-        }
-
-        if (utils.hasDELETE(element)) {
-            return Optional.of(HttpMethod.DELETE);
-        }
-
-        if (utils.hasOPTIONS(element)) {
-            return Optional.of(HttpMethod.OPTIONS);
-        }
-
-        return Optional.empty();
-    }
-
     private List<String> processPath(final String input) {
         final String trimmed = SLASH.trimFrom(input);
 
@@ -201,45 +186,62 @@ public class RsClassProcessor {
 
     private Result<Consumer<TypeSpec.Builder>> endpointSetup(final ExecutableElement endpoint,
             final FieldSpec instanceField, final List<String> root, final String method) {
-        final Result<MethodSpec> unverifiedHandler = handlerMethod(endpoint, instanceField);
+        final Result<MethodSpec> resultHandler = handlerMethod(endpoint, instanceField);
+        final Result<MethodSpec> resultMapping =
+                mappingMethod(endpoint, instanceField, root, method);
 
-        final Result<List<String>> unverifiedPath = path(endpoint);
-        final Result<List<String>> unverifiedConsumes = consumes(endpoint);
-        final Result<List<String>> unverifiedProduces = produces(endpoint);
+        return Result.combineDifferent(resultHandler, resultMapping).map(v -> {
+            final MethodSpec handler = resultHandler.get();
+            final MethodSpec mapping = resultMapping.get();
 
-        final MethodSpec.Builder mapping = MethodSpec.methodBuilder(utils.mappingMethod(endpoint));
-        mapping.addModifiers(Modifier.PUBLIC);
-        mapping.returns(ParameterizedTypeName.get(utils.rsMapping(),
-                TypeName.get(utils.box(endpoint.getReturnType()))));
+            return builder -> {
+                builder.addMethod(handler);
+                builder.addMethod(mapping);
+            };
+        });
+    }
 
-        return Result.combineDifferent(unverifiedPath, unverifiedHandler, unverifiedConsumes,
-                unverifiedProduces).map(v -> {
-                    final List<String> path = unverifiedPath.get();
-                    final MethodSpec handler = unverifiedHandler.get();
+    private Result<MethodSpec> mappingMethod(final ExecutableElement endpoint,
+            final FieldSpec instanceField, final List<String> root, final String method) {
+        final Result<List<String>> resultPath = path(endpoint);
+        final Result<List<String>> resultConsumes = consumes(endpoint);
+        final Result<List<String>> resultProduces = produces(endpoint);
 
-                    final ChainStatement stmt = new ChainStatement().add("return ")
-                            .add("$T.<$T>builder()", utils.rsMapping(),
-                                    TypeName.get(utils.box(endpoint.getReturnType())))
-                            .add(".method($S)", method).addVarString(".path(%s)",
-                                    ImmutableList.copyOf(Iterables.concat(root, path)));
+        final Result<?> combined =
+                Result.combineDifferent(resultPath, resultConsumes, resultProduces);
 
-                    if (utils.isVoid(endpoint.getReturnType())) {
-                        stmt.add(".voidHandle(this::$L)", endpoint.getSimpleName().toString());
-                    } else {
-                        stmt.add(".handle(this::$L)", endpoint.getSimpleName().toString());
-                    }
+        return combined.map(v -> {
+            final List<String> path = resultPath.get();
+            final List<String> consumes = resultConsumes.get();
+            final List<String> produces = resultProduces.get();
 
-                    stmt.addVarString(".consumes(%s)", unverifiedConsumes.get())
-                            .addVarString(".produces(%s)", unverifiedProduces.get())
-                            .add(".build()");
+            final ChainStatement stmt = new ChainStatement().add("return ");
 
-                    mapping.addStatement(stmt.format(), stmt.arguments());
+            stmt.add("$T.<$T>builder()", utils.rsMapping(),
+                    TypeName.get(utils.box(endpoint.getReturnType())));
 
-                    return builder -> {
-                        builder.addMethod(handler);
-                        builder.addMethod(mapping.build());
-                    };
-                });
+            stmt.add(".method($S)", method);
+            stmt.addVarString(".path(%s)", ImmutableList.copyOf(Iterables.concat(root, path)));
+
+            if (utils.isVoid(endpoint.getReturnType())) {
+                stmt.add(".voidHandle(this::$L)", endpoint.getSimpleName().toString());
+            } else {
+                stmt.add(".handle(this::$L)", endpoint.getSimpleName().toString());
+            }
+
+            stmt.addVarString(".consumes(%s)", consumes);
+            stmt.addVarString(".produces(%s)", produces);
+            stmt.add(".build()");
+
+            final MethodSpec.Builder mapping =
+                    MethodSpec.methodBuilder(utils.mappingMethod(endpoint));
+            mapping.addModifiers(Modifier.PUBLIC);
+            mapping.returns(ParameterizedTypeName.get(utils.rsMapping(),
+                    TypeName.get(utils.box(endpoint.getReturnType()))));
+
+            mapping.addStatement(stmt.format(), stmt.arguments());
+            return mapping.build();
+        });
     }
 
     private Result<MethodSpec> handlerMethod(final ExecutableElement method,
@@ -472,7 +474,8 @@ public class RsClassProcessor {
         final TypeName variableType;
 
         if (optional || list) {
-            variableType = TypeName.get(utils.firstParameter(variableTypeMirror));
+            variableType = TypeName.get(utils.firstParameter(variableTypeMirror).orElseThrow(
+                    () -> new RuntimeException("No parameter for type: " + variableTypeMirror)));
         } else {
             variableType = TypeName.get(variableTypeMirror);
         }
