@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 public class RsMapping<T> {
@@ -65,7 +66,13 @@ public class RsMapping<T> {
         }
 
         public Builder<T> handle(final Function<RsRequestContext, T> handle) {
-            this.handle = Objects.requireNonNull(handle);
+            this.handle = Objects.requireNonNull(handle, "handle");
+            return this;
+        }
+
+        public Builder<T> voidHandle(final Consumer<RsRequestContext> handle) {
+            Objects.requireNonNull(handle, "handle");
+            this.handle = ctx -> { handle.accept(ctx); return null; };
             return this;
         }
 

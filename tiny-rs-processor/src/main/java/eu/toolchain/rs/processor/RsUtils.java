@@ -24,7 +24,9 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.NoType;
 import javax.lang.model.type.PrimitiveType;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -40,6 +42,8 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.container.AsyncResponse;
+import javax.ws.rs.container.Suspended;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -67,6 +71,7 @@ import eu.toolchain.rs.processor.annotation.PathParamMirror;
 import eu.toolchain.rs.processor.annotation.ProducesMirror;
 import eu.toolchain.rs.processor.annotation.QueryParamMirror;
 import eu.toolchain.rs.processor.annotation.RsInjectBindingMirror;
+import eu.toolchain.rs.processor.annotation.SuspendedMirror;
 import eu.toolchain.rs.processor.result.Result;
 import lombok.RequiredArgsConstructor;
 
@@ -106,11 +111,17 @@ public class RsUtils {
     public static final String DELETE = DELETE.class.getCanonicalName();
     public static final String OPTIONS = OPTIONS.class.getCanonicalName();
 
+    /* javax.ws.rs.container types */
+    public static final String SUSPENDED = Suspended.class.getCanonicalName();
+    public static final String ASYNC_RESPONSE = AsyncResponse.class.getCanonicalName();
+
     /* annotations to look for */
     public static final Set<String> ANNOTATION_NAMES = ImmutableSet.copyOf(
             Stream.of(PATH, PRODUCES, CONSUMES, GET, POST, PUT, DELETE, OPTIONS).iterator());
 
     /* other useful types */
+    public static final String VOID = Void.class.getCanonicalName();
+
     public static final String LIST = List.class.getCanonicalName();
     public static final String ARRAY_LIST = ArrayList.class.getCanonicalName();
     public static final String OPTIONAL = Optional.class.getCanonicalName();
@@ -149,6 +160,14 @@ public class RsUtils {
     public TypeMirror box(TypeMirror type) {
         if (type instanceof PrimitiveType) {
             return types.boxedClass((PrimitiveType) type).asType();
+        }
+
+        if (type instanceof NoType) {
+            final NoType no = (NoType)type;
+
+            if (no.getKind() == TypeKind.VOID) {
+                return elements.getTypeElement(VOID).asType();
+            }
         }
 
         return type;
@@ -235,6 +254,11 @@ public class RsUtils {
                 .map(a -> HeaderParamMirror.getFor(this, element, a));
     }
 
+    public Optional<Result<SuspendedMirror>> suspended(final Element element) {
+        return annotation(element, SUSPENDED)
+                .map(a -> SuspendedMirror.getFor(this, element, a));
+    }
+
     public Set<TypeElement> annotations() {
         return annotations;
     }
@@ -247,6 +271,10 @@ public class RsUtils {
         final DeclaredType d = (DeclaredType) valueType;
         final TypeElement t = (TypeElement) d.asElement();
         return t.getQualifiedName().toString().equals(OPTIONAL);
+    }
+
+    public boolean isVoid(TypeMirror type) {
+        return type.getKind() == TypeKind.VOID;
     }
 
     public boolean isList(TypeMirror valueType) {
@@ -296,19 +324,19 @@ public class RsUtils {
         return ClassName.get(elements.getTypeElement(RS_PARAMETER));
     }
 
-    public Object rsMissingPathParameter() {
+    public ClassName rsMissingPathParameter() {
         return ClassName.get(elements.getTypeElement(RS_MISSING_PATH_PARAMETER));
     }
 
-    public Object rsMissingQueryParameter() {
+    public ClassName rsMissingQueryParameter() {
         return ClassName.get(elements.getTypeElement(RS_MISSING_QUERY_PARAMETER));
     }
 
-    public Object rsMissingHeaderParameter() {
+    public ClassName rsMissingHeaderParameter() {
         return ClassName.get(elements.getTypeElement(RS_MISSING_HEADER_PARAMETER));
     }
 
-    public Object rxMissingPayload() {
+    public ClassName rxMissingPayload() {
         return ClassName.get(elements.getTypeElement(RS_MISSING_PAYLOAD));
     }
 
@@ -350,6 +378,10 @@ public class RsUtils {
 
     public ClassName uuidType() {
         return ClassName.get(elements.getTypeElement(UUID));
+    }
+
+    public ClassName asyncResponse() {
+        return ClassName.get(elements.getTypeElement(ASYNC_RESPONSE));
     }
 
     public TypeMirror firstParameter(TypeMirror parent) {

@@ -4,6 +4,8 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
+import javax.ws.rs.container.AsyncResponse;
+
 public interface RsRequestContext {
     /**
      * Get the given path parameter.
@@ -92,4 +94,13 @@ public interface RsRequestContext {
      * @return A supplier providing a default value.
      */
     Supplier<RsParameter> provideDefault(String defaultValue);
+
+    /**
+     * Convert context into a suspended AsyncResponse.
+     * 
+     * @return The suspended Async response.
+     */
+    default AsyncResponse asSuspended() {
+        throw new RsRequestException("suspending requests is not supported");
+    }
 }

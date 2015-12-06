@@ -37,6 +37,7 @@ import eu.toolchain.rs.processor.annotation.HeaderParamMirror;
 import eu.toolchain.rs.processor.annotation.PathMirror;
 import eu.toolchain.rs.processor.annotation.PathParamMirror;
 import eu.toolchain.rs.processor.annotation.QueryParamMirror;
+import eu.toolchain.rs.processor.annotation.SuspendedMirror;
 import eu.toolchain.rs.processor.result.Result;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -219,11 +220,16 @@ public class RsClassProcessor {
                     final ChainStatement stmt = new ChainStatement().add("return ")
                             .add("$T.<$T>builder()", utils.rsMapping(),
                                     TypeName.get(utils.box(endpoint.getReturnType())))
-                            .add(".method($S)", method)
-                            .addVarString(".path(%s)",
-                                    ImmutableList.copyOf(Iterables.concat(root, path)))
-                            .add(".handle(this::$L)", endpoint.getSimpleName().toString())
-                            .addVarString(".consumes(%s)", unverifiedConsumes.get())
+                            .add(".method($S)", method).addVarString(".path(%s)",
+                                    ImmutableList.copyOf(Iterables.concat(root, path)));
+
+                    if (utils.isVoid(endpoint.getReturnType())) {
+                        stmt.add(".voidHandle(this::$L)", endpoint.getSimpleName().toString());
+                    } else {
+                        stmt.add(".handle(this::$L)", endpoint.getSimpleName().toString());
+                    }
+
+                    stmt.addVarString(".consumes(%s)", unverifiedConsumes.get())
                             .addVarString(".produces(%s)", unverifiedProduces.get())
                             .add(".build()");
 
@@ -267,6 +273,10 @@ public class RsClassProcessor {
                         handleHeaderParam(ctx, variables, parameter, headerParam, defaultValue));
             });
 
+            utils.suspended(parameter).ifPresent(suspended -> {
+                consumer.add(handleSuspended(ctx, variables, parameter, suspended));
+            });
+
             if (TypeName.get(parameter.asType()).equals(utils.rsRequestContext())) {
                 variables.add("ctx");
                 consumer.add(Result.ok(builder -> {
@@ -300,8 +310,11 @@ public class RsClassProcessor {
                 factory.accept(handler);
             }
 
-            handler.addStatement("return $N.$L($L)", instanceField,
-                    method.getSimpleName().toString(), PARAMETER_JOINER.join(variables.build()));
+            handler.addStatement(
+                    (utils.isVoid(method.getReturnType()) ? "" : "return ") + "$N.$L($L)",
+                    instanceField, method.getSimpleName().toString(),
+                    PARAMETER_JOINER.join(variables.build()));
+
             return handler.build();
         });
     }
@@ -422,6 +435,22 @@ public class RsClassProcessor {
 
             return provideArgument(ctx, variables, parameter, get, handleAbsent,
                     Optional.of(getList));
+        });
+    }
+
+    private Result<Consumer<MethodSpec.Builder>> handleSuspended(final ParameterSpec ctx,
+            ImmutableList.Builder<String> variables, VariableElement parameter,
+            Result<SuspendedMirror> suspended) {
+        if (!TypeName.get(parameter.asType()).equals(utils.asyncResponse())) {
+            return Result.brokenElement("@Suspended arguments must be of type AsyncResponse",
+                    parameter);
+        }
+
+        variables.add(parameter.getSimpleName().toString());
+
+        return Result.ok(builder -> {
+            builder.addStatement("final $T $L = $N.asSuspended()", utils.asyncResponse(),
+                    parameter.getSimpleName().toString(), ctx);
         });
     }
 

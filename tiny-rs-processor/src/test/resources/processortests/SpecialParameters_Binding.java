@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.annotation.Generated;
+import javax.ws.rs.container.AsyncResponse;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
 public class SpecialParameters_Binding {
@@ -24,9 +25,20 @@ public class SpecialParameters_Binding {
         return RsMapping.<Object>builder().method("GET").handle(this::requestContext).build();
     }
 
-    public List<RsMapping<Object>> routes() {
-        final List<RsMapping<Object>> routes = new ArrayList<>();
+    public void suspended(final RsRequestContext ctx) {
+        final AsyncResponse async = ctx.asSuspended();
+        instance.suspended(async);
+    }
+
+    public RsMapping<Void> suspended_mapping() {
+        return RsMapping.<Void>builder().method("GET").voidHandle(this::suspended).build();
+    }
+
+    public List<RsMapping<?>> routes() {
+        final List<RsMapping<?>> routes = new ArrayList<>();
         routes.add(requestContext_mapping());
+        routes.add(suspended_mapping());
         return routes;
     }
 }
+
