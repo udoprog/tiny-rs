@@ -8,6 +8,10 @@
     <relativePath>..</relativePath>
   </parent>
 
+  <properties>
+    <javax.inject.version>1</javax.inject.version>
+  </properties>
+
   <artifactId>tiny-rs-processor</artifactId>
   <packaging>jar</packaging>
 
@@ -65,6 +69,13 @@
       <groupId>com.google.truth</groupId>
       <artifactId>truth</artifactId>
       <version>0.27</version>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>javax.inject</groupId>
+      <artifactId>javax.inject</artifactId>
+      <version>${javax.inject.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

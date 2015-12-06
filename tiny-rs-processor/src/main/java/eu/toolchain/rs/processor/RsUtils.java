@@ -51,6 +51,7 @@ import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.WildcardTypeName;
 
+import eu.toolchain.rs.RsInjectBinding;
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsMissingHeaderParameter;
 import eu.toolchain.rs.RsMissingPathParameter;
@@ -65,6 +66,7 @@ import eu.toolchain.rs.processor.annotation.PathMirror;
 import eu.toolchain.rs.processor.annotation.PathParamMirror;
 import eu.toolchain.rs.processor.annotation.ProducesMirror;
 import eu.toolchain.rs.processor.annotation.QueryParamMirror;
+import eu.toolchain.rs.processor.annotation.RsInjectBindingMirror;
 import eu.toolchain.rs.processor.result.Result;
 import lombok.RequiredArgsConstructor;
 
@@ -86,6 +88,7 @@ public class RsUtils {
     public static final String RS_MISSING_HEADER_PARAMETER =
             RsMissingHeaderParameter.class.getCanonicalName();
     public static final String RS_MISSING_PAYLOAD = RsMissingPayload.class.getCanonicalName();
+    public static final String RS_INJECT_BINDING = RsInjectBinding.class.getCanonicalName();
 
     public static final String MAPPING_METHOD_FORMAT = "%s_mapping";
 
@@ -120,6 +123,12 @@ public class RsUtils {
     public static final String INTEGER = Integer.class.getCanonicalName();
     public static final String LONG = Long.class.getCanonicalName();
     public static final String UUID = UUID.class.getCanonicalName();
+
+    public static final String GENERATED_PACKAGE = Generated.class.getPackage().getName();
+    public static final String GENERATED = Generated.class.getSimpleName();
+
+    public static final String INJECT_PACKAGE = "javax.inject";
+    public static final String INJECT = "Inject";
 
     private final Types types;
     private final Elements elements;
@@ -190,6 +199,10 @@ public class RsUtils {
         }
 
         return Optional.empty();
+    }
+
+    public Optional<Result<RsInjectBindingMirror>> rsInjectBinding(final Element element) {
+        return annotation(element, RS_INJECT_BINDING).map(a -> RsInjectBindingMirror.getFor(this, element, a));
     }
 
     public Optional<Result<PathMirror>> path(final Element element) {
@@ -373,7 +386,7 @@ public class RsUtils {
                 ImmutableList.copyOf(types.stream().map(this::mapHierarchy).iterator());
 
         if (all.isEmpty()) {
-            return TypeName.OBJECT;
+            return WildcardTypeName.subtypeOf(TypeName.OBJECT);
         }
 
         final Iterator<LinkedHashMap<TypeElement, DeclaredType>> it = all.iterator();
@@ -472,7 +485,11 @@ public class RsUtils {
     }
 
     public AnnotationSpec generatedAnnotation() {
-        return AnnotationSpec.builder(Generated.class).addMember("value", "$S", RS_PROCESSOR)
-                .build();
+        return AnnotationSpec.builder(ClassName.get(GENERATED_PACKAGE, GENERATED))
+                .addMember("value", "$S", RS_PROCESSOR).build();
+    }
+
+    public AnnotationSpec injectAnnotation() {
+        return AnnotationSpec.builder(ClassName.get(INJECT_PACKAGE, INJECT)).build();
     }
 }

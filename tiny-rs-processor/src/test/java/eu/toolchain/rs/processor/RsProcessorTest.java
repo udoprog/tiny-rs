@@ -9,9 +9,6 @@ import org.junit.Test;
 
 import com.google.testing.compile.JavaFileObjects;
 
-import eu.toolchain.rs.processor.RsProcessor;
-import eu.toolchain.rs.processor.RsUtils;
-
 public class RsProcessorTest {
     @Test
     public void testParams() {
@@ -51,6 +48,11 @@ public class RsProcessorTest {
     @Test
     public void testGenericWildcard() {
         verifyProcessorFor("GenericWildcard");
+    }
+
+    @Test
+    public void testInjectBindings() {
+        verifyProcessorFor("InjectBindings");
     }
 
     static void verifyProcessorFor(String name) {

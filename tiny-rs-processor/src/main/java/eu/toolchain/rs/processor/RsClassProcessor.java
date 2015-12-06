@@ -189,8 +189,11 @@ public class RsClassProcessor {
         final MethodSpec.Builder b = MethodSpec.constructorBuilder();
         b.addModifiers(Modifier.PUBLIC);
         b.addParameter(instance);
-
         b.addStatement("this.$N = $N", instanceField, instance);
+
+        if (utils.rsInjectBinding(element).isPresent()) {
+            b.addAnnotation(utils.injectAnnotation());
+        }
 
         return b.build();
     }
