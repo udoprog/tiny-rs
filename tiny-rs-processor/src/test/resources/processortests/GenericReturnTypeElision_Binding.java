@@ -2,13 +2,15 @@ package processortests;
 
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
+
 import java.util.ArrayList;
 import java.util.List;
 
 import javax.annotation.Generated;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
-public class GenericReturnTypeElision_Binding {
+public class GenericReturnTypeElision_Binding implements RsRoutesProvider<RsMapping<? extends List<?>>> {
     private final GenericReturnTypeElision instance;
 
     public GenericReturnTypeElision_Binding(final GenericReturnTypeElision instance) {
@@ -31,6 +33,7 @@ public class GenericReturnTypeElision_Binding {
         return RsMapping.<List<Integer>>builder().method("GET").handle(this::b).build();
     }
 
+    @Override
     public List<RsMapping<? extends List<?>>> routes() {
         final List<RsMapping<? extends List<?>>> routes = new ArrayList<>();
         routes.add(a_mapping());

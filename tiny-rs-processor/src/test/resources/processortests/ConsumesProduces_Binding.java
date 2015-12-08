@@ -2,6 +2,7 @@ package processortests;
 
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -9,7 +10,7 @@ import java.util.List;
 import javax.annotation.Generated;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
-public class ConsumesProduces_Binding {
+public class ConsumesProduces_Binding implements RsRoutesProvider<RsMapping<Object>> {
     private final ConsumesProduces instance;
 
     public ConsumesProduces_Binding(final ConsumesProduces instance) {
@@ -24,6 +25,7 @@ public class ConsumesProduces_Binding {
         return RsMapping.<Object>builder().method("GET").handle(this::a).consumes("a", "b").produces("c", "d").build();
     }
 
+    @Override
     public List<RsMapping<Object>> routes() {
         final List<RsMapping<Object>> routes = new ArrayList<>();
         routes.add(a_mapping());

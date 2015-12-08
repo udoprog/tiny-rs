@@ -4,6 +4,7 @@ import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsMissingQueryParameter;
 import eu.toolchain.rs.RsParameter;
 import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +14,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Generated;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
-public class QueryParams_Binding {
+public class QueryParams_Binding implements RsRoutesProvider<RsMapping<Object>> {
     private final QueryParams instance;
 
     public QueryParams_Binding(final QueryParams instance) {
@@ -34,6 +35,7 @@ public class QueryParams_Binding {
         return RsMapping.<Object>builder().method("GET").handle(this::a).build();
     }
 
+    @Override
     public List<RsMapping<Object>> routes() {
         final List<RsMapping<Object>> routes = new ArrayList<>();
         routes.add(a_mapping());

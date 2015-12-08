@@ -4,6 +4,7 @@ import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsMissingPathParameter;
 import eu.toolchain.rs.RsParameter;
 import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,7 +13,7 @@ import java.util.Optional;
 import javax.annotation.Generated;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
-public class PathParams_Binding {
+public class PathParams_Binding implements RsRoutesProvider<RsMapping<Object>> {
     private final PathParams instance;
 
     public PathParams_Binding(final PathParams instance) {
@@ -31,6 +32,7 @@ public class PathParams_Binding {
         return RsMapping.<Object>builder().method("GET").handle(this::a).build();
     }
 
+    @Override
     public List<RsMapping<Object>> routes() {
         final List<RsMapping<Object>> routes = new ArrayList<>();
         routes.add(a_mapping());

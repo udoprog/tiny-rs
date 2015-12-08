@@ -64,6 +64,7 @@ import eu.toolchain.rs.RsMissingPayload;
 import eu.toolchain.rs.RsMissingQueryParameter;
 import eu.toolchain.rs.RsParameter;
 import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
 import eu.toolchain.rs.processor.annotation.ConsumesMirror;
 import eu.toolchain.rs.processor.annotation.DefaultValueMirror;
 import eu.toolchain.rs.processor.annotation.HeaderParamMirror;
@@ -79,7 +80,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class RsUtils {
     public static final String BINDING_NAME_FORMAT = "%s_Binding";
-    public static final Joiner underscoreJoiner = Joiner.on('_');
+    public static final String MAPPING_METHOD_FORMAT = "%s_mapping";
+
+    public static final Joiner UNDERSCORE_JOINER = Joiner.on('_');
 
     public static final String RS_PROCESSOR = RsProcessor.class.getCanonicalName();
 
@@ -94,9 +97,8 @@ public class RsUtils {
     public static final String RS_MISSING_HEADER_PARAMETER =
             RsMissingHeaderParameter.class.getCanonicalName();
     public static final String RS_MISSING_PAYLOAD = RsMissingPayload.class.getCanonicalName();
+    public static final String RS_ROUTES_PROVIDER = RsRoutesProvider.class.getCanonicalName();
     public static final String RS_INJECT_BINDING = RsInjectBinding.class.getCanonicalName();
-
-    public static final String MAPPING_METHOD_FORMAT = "%s_mapping";
 
     /* javax.ws.rs API types */
     public static final String PATH = Path.class.getCanonicalName();
@@ -138,6 +140,9 @@ public class RsUtils {
 
     public static final String GENERATED_PACKAGE = Generated.class.getPackage().getName();
     public static final String GENERATED = Generated.class.getSimpleName();
+
+    public static final String OVERRIDE_PACKAGE = Override.class.getPackage().getName();
+    public static final String OVERRIDE = Override.class.getSimpleName();
 
     public static final String INJECT_PACKAGE = "javax.inject";
     public static final String INJECT = "Inject";
@@ -310,11 +315,15 @@ public class RsUtils {
             element = element.getEnclosingElement();
         } while (element.getKind() != ElementKind.PACKAGE);
 
-        return String.format(BINDING_NAME_FORMAT, underscoreJoiner.join(parts.build().reverse()));
+        return String.format(BINDING_NAME_FORMAT, UNDERSCORE_JOINER.join(parts.build().reverse()));
     }
 
-    public ClassName rsMapping() {
+    public ClassName rsMappingRaw() {
         return ClassName.get(elements.getTypeElement(RS_MAPPING));
+    }
+
+    public ParameterizedTypeName rsMapping(final TypeName parameter) {
+        return ParameterizedTypeName.get(rsMappingRaw(), parameter);
     }
 
     public ClassName rsRequestContext() {
@@ -337,16 +346,23 @@ public class RsUtils {
         return ClassName.get(elements.getTypeElement(RS_MISSING_HEADER_PARAMETER));
     }
 
-    public ClassName rxMissingPayload() {
+    public ClassName rsMissingPayload() {
         return ClassName.get(elements.getTypeElement(RS_MISSING_PAYLOAD));
     }
 
-    public ClassName optional() {
-        return ClassName.get(elements.getTypeElement(OPTIONAL));
+    public ParameterizedTypeName rsRoutesProvider(final TypeName parameter) {
+        final ClassName raw = ClassName.get(elements.getTypeElement(RS_ROUTES_PROVIDER));
+        return ParameterizedTypeName.get(raw, parameter);
     }
 
-    public ClassName list() {
-        return ClassName.get(elements.getTypeElement(LIST));
+    public ParameterizedTypeName optional(final TypeName parameter) {
+        final ClassName raw = ClassName.get(elements.getTypeElement(OPTIONAL));
+        return ParameterizedTypeName.get(raw, parameter);
+    }
+
+    public ParameterizedTypeName list(final TypeName parameter) {
+        final ClassName raw = ClassName.get(elements.getTypeElement(LIST));
+        return ParameterizedTypeName.get(raw, parameter);
     }
 
     public ClassName function() {
@@ -453,6 +469,10 @@ public class RsUtils {
 
     public AnnotationSpec injectAnnotation() {
         return AnnotationSpec.builder(ClassName.get(INJECT_PACKAGE, INJECT)).build();
+    }
+
+    public AnnotationSpec overrideAnnotation() {
+        return AnnotationSpec.builder(ClassName.get(OVERRIDE_PACKAGE, OVERRIDE)).build();
     }
 
     private TypeName greatestCommonSuperType(final LinkedHashSet<TypeMirror> types,

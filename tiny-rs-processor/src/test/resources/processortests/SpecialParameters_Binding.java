@@ -2,6 +2,7 @@ package processortests;
 
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,7 +11,7 @@ import javax.annotation.Generated;
 import javax.ws.rs.container.AsyncResponse;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
-public class SpecialParameters_Binding {
+public class SpecialParameters_Binding implements RsRoutesProvider<RsMapping<?>> {
     private final SpecialParameters instance;
 
     public SpecialParameters_Binding(final SpecialParameters instance) {
@@ -34,6 +35,7 @@ public class SpecialParameters_Binding {
         return RsMapping.<Void>builder().method("GET").voidHandle(this::suspended).build();
     }
 
+    @Override
     public List<RsMapping<?>> routes() {
         final List<RsMapping<?>> routes = new ArrayList<>();
         routes.add(requestContext_mapping());

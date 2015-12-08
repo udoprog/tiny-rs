@@ -99,8 +99,8 @@ public class RsClassProcessor {
 
                 /* annotated with a method annotation, like @GET */
                 utils.method(executable).ifPresent(resultMethod -> {
-                    final Result<Consumer<Builder>> endpoint = resultMethod
-                            .flatMap(method -> endpointSetup(executable, instanceField, rootPath, method));
+                    final Result<Consumer<Builder>> endpoint = resultMethod.flatMap(
+                            method -> endpointSetup(executable, instanceField, rootPath, method));
 
                     methods.add(executable);
                     returnTypes.add(utils.box(executable.getReturnType()));
@@ -111,6 +111,8 @@ public class RsClassProcessor {
             final TypeName routesReturnType = utils.greatestCommonSuperType(returnTypes);
 
             unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
+
+            generated.addSuperinterface(utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
 
             return Result.combine(unverifiedHandlers.build()).map(handlers -> {
                 handlers.stream().forEach(h -> h.accept(generated));
@@ -125,12 +127,14 @@ public class RsClassProcessor {
             final ImmutableList.Builder<ExecutableElement> methods) {
         return builder -> {
             final MethodSpec.Builder method = MethodSpec.methodBuilder("routes");
+            final ParameterizedTypeName routesReturnType = utils.list(utils.rsMapping(returnType));
+
+            method.addAnnotation(utils.overrideAnnotation());
             method.addModifiers(Modifier.PUBLIC);
 
-            method.returns(ParameterizedTypeName.get(utils.list(),
-                    ParameterizedTypeName.get(utils.rsMapping(), returnType)));
-            method.addStatement("final $T<$T<$T>> $L = new $T<>()", utils.list(), utils.rsMapping(),
-                    returnType, "routes", utils.arrayList());
+            method.returns(routesReturnType);
+            method.addStatement("final $T $L = new $T<>()", routesReturnType, "routes",
+                    utils.arrayList());
 
             for (final ExecutableElement executable : methods.build()) {
                 method.addStatement("$L.add($L())", "routes", utils.mappingMethod(executable));
@@ -217,7 +221,7 @@ public class RsClassProcessor {
 
             final ChainStatement stmt = new ChainStatement().add("return ");
 
-            stmt.add("$T.<$T>builder()", utils.rsMapping(),
+            stmt.add("$T.<$T>builder()", utils.rsMappingRaw(),
                     TypeName.get(utils.box(endpoint.getReturnType())));
 
             stmt.add(".method($S)", method);
@@ -236,8 +240,7 @@ public class RsClassProcessor {
             final MethodSpec.Builder mapping =
                     MethodSpec.methodBuilder(utils.mappingMethod(endpoint));
             mapping.addModifiers(Modifier.PUBLIC);
-            mapping.returns(ParameterizedTypeName.get(utils.rsMapping(),
-                    TypeName.get(utils.box(endpoint.getReturnType()))));
+            mapping.returns(utils.rsMapping(TypeName.get(utils.box(endpoint.getReturnType()))));
 
             mapping.addStatement(stmt.format(), stmt.arguments());
             return mapping.build();
@@ -340,7 +343,7 @@ public class RsClassProcessor {
                 if (def.isPresent()) {
                     stmt.add(".orElseGet($N.provideDefaultPayload($S))", ctx, def.get());
                 } else {
-                    stmt.add(".orElseThrow(() -> new $T())", utils.rxMissingPayload());
+                    stmt.add(".orElseThrow(() -> new $T())", utils.rsMissingPayload());
                 }
             };
 
@@ -485,10 +488,10 @@ public class RsClassProcessor {
         final ChainStatement stmt = new ChainStatement();
 
         if (optional) {
-            stmt.add("final $T<$T> $L = $N", utils.optional(), variableType, variableName, ctx);
+            stmt.add("final $T $L = $N", utils.optional(variableType), variableName, ctx);
             get.accept(stmt);
         } else if (list) {
-            stmt.add("final $T<$T> $L = $N", utils.list(), variableType, variableName, ctx);
+            stmt.add("final $T $L = $N", utils.list(variableType), variableName, ctx);
             getList.orElseThrow(() -> new IllegalStateException("providing list not supported"))
                     .accept(stmt);
         } else {

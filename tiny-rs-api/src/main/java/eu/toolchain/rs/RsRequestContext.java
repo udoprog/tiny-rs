@@ -97,7 +97,7 @@ public interface RsRequestContext {
 
     /**
      * Convert context into a suspended AsyncResponse.
-     * 
+     *
      * @return The suspended Async response.
      */
     default AsyncResponse asSuspended() {
