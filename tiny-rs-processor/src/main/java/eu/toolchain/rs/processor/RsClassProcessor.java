@@ -115,7 +115,7 @@ public class RsClassProcessor {
             generated.addSuperinterface(utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
 
             return Result.combine(unverifiedHandlers.build()).map(handlers -> {
-                handlers.stream().forEach(h -> h.accept(generated));
+                handlers.forEach(h -> h.accept(generated));
 
                 return JavaFile.builder(packageName, generated.build()).skipJavaLangImports(true)
                         .indent("    ").build();
@@ -251,6 +251,12 @@ public class RsClassProcessor {
             final FieldSpec instanceField) {
         final MethodSpec.Builder handler =
                 MethodSpec.methodBuilder(method.getSimpleName().toString());
+
+        /* re-declare thrown exceptions */
+        method.getThrownTypes().forEach(thrownType -> {
+            handler.addException(TypeName.get(thrownType));
+        });
+
         final ParameterSpec ctx =
                 ParameterSpec.builder(utils.rsRequestContext(), "ctx", Modifier.FINAL).build();
 

@@ -60,6 +60,11 @@ public class RsProcessorTest {
         verifyProcessorFor("SpecialParameters");
     }
 
+    @Test
+    public void testThrowing() {
+        verifyProcessorFor("Throwing");
+    }
+
     static void verifyProcessorFor(String name) {
         verifyProcessorFor(name, String.format(RsUtils.BINDING_NAME_FORMAT, name));
     }

@@ -4,18 +4,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Consumer;
-import java.util.function.Function;
 
 public class RsMapping<T> {
     private final String method;
     private final List<String> path;
-    private final Function<RsRequestContext, T> handle;
+    private final RsFunction<RsRequestContext, T> handle;
     private final List<String> consumes;
     private final List<String> produces;
 
     private RsMapping(final String method, final List<String> path,
-            final Function<RsRequestContext, T> handle, final List<String> consumes,
+            final RsFunction<RsRequestContext, T> handle, final List<String> consumes,
             final List<String> produces) {
         this.method = Objects.requireNonNull(method);
         this.path = Objects.requireNonNull(path);
@@ -32,7 +30,7 @@ public class RsMapping<T> {
         return path;
     }
 
-    public Function<RsRequestContext, T> handle() {
+    public RsFunction<RsRequestContext, T> handle() {
         return handle;
     }
 
@@ -51,7 +49,7 @@ public class RsMapping<T> {
     public static class Builder<T> {
         private String method;
         private List<String> path = Collections.emptyList();
-        private Function<RsRequestContext, T> handle;
+        private RsFunction<RsRequestContext, T> handle;
         private List<String> consumes = Collections.emptyList();
         private List<String> produces = Collections.emptyList();
 
@@ -65,12 +63,12 @@ public class RsMapping<T> {
             return this;
         }
 
-        public Builder<T> handle(final Function<RsRequestContext, T> handle) {
+        public Builder<T> handle(final RsFunction<RsRequestContext, T> handle) {
             this.handle = Objects.requireNonNull(handle, "handle");
             return this;
         }
 
-        public Builder<T> voidHandle(final Consumer<RsRequestContext> handle) {
+        public Builder<T> voidHandle(final RsConsumer<RsRequestContext> handle) {
             Objects.requireNonNull(handle, "handle");
             this.handle = ctx -> { handle.accept(ctx); return null; };
             return this;
