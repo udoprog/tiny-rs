@@ -97,5 +97,4 @@ consideration for how they should best be incorporated.
 
 * All of [`javax.ws.rs.client`](https://docs.oracle.com/javaee/7/api/javax/ws/rs/client/package-summary.html)
 * All of [`javax.ws.rs.container`](https://docs.oracle.com/javaee/7/api/javax/ws/rs/container/package-summary.html)
-* All of [`javax.ws.rs.core`](https://docs.oracle.com/javaee/7/api/javax/ws/rs/core/package-summary.html)
 * All of [`javax.ws.rs.ext`](https://docs.oracle.com/javaee/7/api/javax/ws/rs/ext/package-summary.html)

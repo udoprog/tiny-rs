@@ -88,6 +88,18 @@ public interface RsRequestContext {
     Optional<RsParameter> getPayload();
 
     /**
+     * Get context of the given type.
+     *
+     * Context are parameters annotated with {@link javax.ws.rs.core.Context}.
+     *
+     * @param type type of context to get
+     * @param <T> type of context
+     * @return the context
+     * @throws java.lang.IllegalArgumentException if the given context does not exist.
+     */
+    <T> T getContext(Class<T> type);
+
+    /**
      * Provide a default value as a parameter.
      *
      * @param defaultValue The value to provide.

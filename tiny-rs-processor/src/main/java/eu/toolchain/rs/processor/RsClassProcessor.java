@@ -1,23 +1,5 @@
 package eu.toolchain.rs.processor;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
-
-import javax.lang.model.element.Element;
-import javax.lang.model.element.ElementKind;
-import javax.lang.model.element.ExecutableElement;
-import javax.lang.model.element.Modifier;
-import javax.lang.model.element.TypeElement;
-import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.TypeMirror;
-import javax.lang.model.util.Elements;
-import javax.lang.model.util.Types;
-
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
@@ -32,7 +14,7 @@ import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.TypeSpec.Builder;
-
+import eu.toolchain.rs.processor.annotation.ContextMirror;
 import eu.toolchain.rs.processor.annotation.DefaultValueMirror;
 import eu.toolchain.rs.processor.annotation.HeaderParamMirror;
 import eu.toolchain.rs.processor.annotation.PathMirror;
@@ -40,6 +22,22 @@ import eu.toolchain.rs.processor.annotation.PathParamMirror;
 import eu.toolchain.rs.processor.annotation.QueryParamMirror;
 import eu.toolchain.rs.processor.annotation.SuspendedMirror;
 import eu.toolchain.rs.processor.result.Result;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeMirror;
+import javax.lang.model.util.Elements;
+import javax.lang.model.util.Types;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 
@@ -288,6 +286,10 @@ public class RsClassProcessor {
                 consumer.add(handleSuspended(ctx, variables, parameter, suspended));
             });
 
+            utils.context(parameter).ifPresent(context -> {
+                consumer.add(handleContext(ctx, variables, parameter, context));
+            });
+
             if (TypeName.get(parameter.asType()).equals(utils.rsRequestContext())) {
                 variables.add("ctx");
                 consumer.add(Result.ok(builder -> {
@@ -462,6 +464,23 @@ public class RsClassProcessor {
         return Result.ok(builder -> {
             builder.addStatement("final $T $L = $N.asSuspended()", utils.asyncResponse(),
                     parameter.getSimpleName().toString(), ctx);
+        });
+    }
+
+    private Result<Consumer<MethodSpec.Builder>> handleContext(final ParameterSpec ctx,
+            ImmutableList.Builder<String> variables, VariableElement parameter,
+            Result<ContextMirror> context) {
+        variables.add(parameter.getSimpleName().toString());
+
+        final TypeName contextType = TypeName.get(parameter.asType());
+
+        if (contextType instanceof ParameterizedTypeName) {
+            return Result.brokenElement("@Context arguments must not be parameterized", parameter);
+        }
+
+        return Result.ok(builder -> {
+            builder.addStatement("final $T $L = $N.getContext($T.class)", contextType,
+                    parameter.getSimpleName().toString(), ctx, contextType);
         });
     }
 

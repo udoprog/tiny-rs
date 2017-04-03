@@ -1,5 +1,6 @@
 package eu.toolchain.rs.processor;
 
+import eu.toolchain.rs.processor.annotation.ContextMirror;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -75,6 +76,7 @@ import eu.toolchain.rs.processor.annotation.QueryParamMirror;
 import eu.toolchain.rs.processor.annotation.RsInjectBindingMirror;
 import eu.toolchain.rs.processor.annotation.SuspendedMirror;
 import eu.toolchain.rs.processor.result.Result;
+import javax.ws.rs.core.Context;
 import lombok.RequiredArgsConstructor;
 
 @RequiredArgsConstructor
@@ -117,6 +119,9 @@ public class RsUtils {
     /* javax.ws.rs.container types */
     public static final String SUSPENDED = Suspended.class.getCanonicalName();
     public static final String ASYNC_RESPONSE = AsyncResponse.class.getCanonicalName();
+
+    /* javax.ws.rs.core types */
+    public static final String CONTEXT = Context.class.getCanonicalName();
 
     /* annotations to look for */
     public static final Set<String> ANNOTATION_NAMES = ImmutableSet.copyOf(
@@ -263,6 +268,10 @@ public class RsUtils {
 
     public Optional<Result<SuspendedMirror>> suspended(final Element element) {
         return annotation(element, SUSPENDED).map(a -> SuspendedMirror.getFor(this, element, a));
+    }
+
+    public Optional<Result<ContextMirror>> context(final Element element) {
+        return annotation(element, CONTEXT).map(a -> ContextMirror.getFor(this, element, a));
     }
 
     public Set<TypeElement> annotations() {

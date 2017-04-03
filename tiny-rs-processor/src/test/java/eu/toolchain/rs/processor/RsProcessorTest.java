@@ -65,6 +65,11 @@ public class RsProcessorTest {
         verifyProcessorFor("Throwing");
     }
 
+    @Test
+    public void testContextArgument() {
+        verifyProcessorFor("ContextArgument");
+    }
+
     static void verifyProcessorFor(String name) {
         verifyProcessorFor(name, String.format(RsUtils.BINDING_NAME_FORMAT, name));
     }
