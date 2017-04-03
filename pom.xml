@@ -3,7 +3,7 @@
 
   <groupId>eu.toolchain.rs</groupId>
   <artifactId>tiny-rs-parent</artifactId>
-  <version>0.1.1-SNAPSHOT</version>
+  <version>0.2.0</version>
   <packaging>pom</packaging>
 
   <url>https://github.com/udoprog/tiny-rs-java</url>
@@ -34,7 +34,7 @@
     <connection>scm:git:git@github.com:udoprog/tiny-rs</connection>
     <developerConnection>scm:git:git@github.com:udoprog/tiny-rs</developerConnection>
     <url>https://github.com/udoprog/tiny-rs</url>
-    <tag>HEAD</tag>
+    <tag>0.2.0</tag>
   </scm>
 
   <developers>
