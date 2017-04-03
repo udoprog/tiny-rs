@@ -4,7 +4,7 @@
   <parent>
     <groupId>eu.toolchain.rs</groupId>
     <artifactId>tiny-rs-parent</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
 
