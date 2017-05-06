@@ -14,14 +14,14 @@ import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.TypeSpec.Builder;
+import eu.toolchain.rs.processor.annotation.ConsumesMirror;
 import eu.toolchain.rs.processor.annotation.ContextMirror;
 import eu.toolchain.rs.processor.annotation.DefaultValueMirror;
 import eu.toolchain.rs.processor.annotation.HeaderParamMirror;
-import eu.toolchain.rs.processor.annotation.PathMirror;
 import eu.toolchain.rs.processor.annotation.PathParamMirror;
+import eu.toolchain.rs.processor.annotation.ProducesMirror;
 import eu.toolchain.rs.processor.annotation.QueryParamMirror;
 import eu.toolchain.rs.processor.annotation.SuspendedMirror;
-import eu.toolchain.rs.processor.result.Result;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -59,10 +59,10 @@ public class RsClassProcessor {
     final Elements elements;
     final RsUtils utils;
 
-    public Result<JavaFile> process(final TypeElement element) {
+    public JavaFile process(final TypeElement element) {
         final String packageName = elements.getPackageOf(element).getQualifiedName().toString();
 
-        final Result<List<String>> unverifiedRootPath = path(element);
+        final List<String> rootPath = path(element);
 
         final TypeSpec.Builder generated = TypeSpec.classBuilder(utils.bindingName(element));
 
@@ -79,83 +79,75 @@ public class RsClassProcessor {
 
         generated.addMethod(constructor(element, instanceField));
 
-        return unverifiedRootPath.flatMap(rootPath -> {
-            final ImmutableList.Builder<Result<Consumer<TypeSpec.Builder>>> unverifiedHandlers =
-                    ImmutableList.builder();
+        setupHandlers(element, rootPath, generated, instanceField).forEach(
+                h -> h.accept(generated));
 
-            final LinkedHashSet<TypeMirror> returnTypes = new LinkedHashSet<>();
-            final ImmutableList.Builder<ExecutableElement> methods = ImmutableList.builder();
+        return JavaFile
+                .builder(packageName, generated.build())
+                .skipJavaLangImports(true)
+                .indent("    ")
+                .build();
+    }
 
-            return Result
-                    .combine(ImmutableList.of(consumes(element), produces(element)))
-                    .flatMap(results -> {
-                        final List<String> parentConsumes = results.get(0);
-                        final List<String> parentProduces = results.get(1);
+    private List<Consumer<Builder>> setupHandlers(
+            final TypeElement element, final List<String> rootPath, final Builder generated,
+            final FieldSpec instanceField
+    ) {
+        final ImmutableList.Builder<Consumer<Builder>> handlers = ImmutableList.builder();
 
-                        final AtomicInteger constantCount = new AtomicInteger();
-                        final Map<ParameterizedTypeName, FieldSpec> typeReferenceFields =
-                                new HashMap<>();
+        final LinkedHashSet<TypeMirror> returnTypes = new LinkedHashSet<>();
+        final ImmutableList.Builder<ExecutableElement> methods = ImmutableList.builder();
 
-                        final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants =
-                                typeReference -> typeReferenceFields.computeIfAbsent(typeReference,
-                                        key -> {
-                                            final FieldSpec typeReferenceField = FieldSpec
-                                                    .builder(typeReference,
-                                                            "TR" + constantCount.getAndIncrement())
-                                                    .addModifiers(Modifier.PRIVATE, Modifier.STATIC,
-                                                            Modifier.FINAL)
-                                                    .initializer("new $T(){}", typeReference)
-                                                    .build();
+        final List<String> parentConsumes = consumes(element);
+        final List<String> parentProduces = produces(element);
 
-                                            generated.addField(typeReferenceField);
-                                            return typeReferenceField;
-                                        });
+        final AtomicInteger constantCount = new AtomicInteger();
+        final Map<ParameterizedTypeName, FieldSpec> typeReferenceFields = new HashMap<>();
 
-                        for (final Element enclosed : element.getEnclosedElements()) {
+        final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants =
+                typeReference -> typeReferenceFields.computeIfAbsent(typeReference, key -> {
+                    final FieldSpec typeReferenceField = FieldSpec
+                            .builder(typeReference, "TR" + constantCount.getAndIncrement())
+                            .addModifiers(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL)
+                            .initializer("new $T(){}", typeReference)
+                            .build();
+
+                    generated.addField(typeReferenceField);
+                    return typeReferenceField;
+                });
+
+        for (final Element enclosed : element.getEnclosedElements()) {
                             /* match methods */
-                            if (enclosed.getKind() != ElementKind.METHOD) {
-                                continue;
-                            }
+            if (enclosed.getKind() != ElementKind.METHOD) {
+                continue;
+            }
 
                             /* skip inaccessible methods (e.g. static, private) */
-                            if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
-                                continue;
-                            }
+            if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
+                continue;
+            }
 
-                            final ExecutableElement executable = (ExecutableElement) enclosed;
+            final ExecutableElement executable = (ExecutableElement) enclosed;
 
                             /* annotated with a method annotation, like @GET */
-                            utils.method(executable).ifPresent(resultMethod -> {
-                                final Result<Consumer<Builder>> endpoint = resultMethod.flatMap(
-                                        method -> endpointSetup(executable, instanceField, rootPath,
-                                                method, parentConsumes, parentProduces,
-                                                typeReferenceConstants));
+            utils.method(executable).ifPresent(method -> {
+                final Consumer<Builder> endpoint =
+                        endpointSetup(executable, instanceField, rootPath, method, parentConsumes,
+                                parentProduces, typeReferenceConstants);
 
-                                methods.add(executable);
-                                returnTypes.add(utils.box(executable.getReturnType()));
-                                unverifiedHandlers.add(endpoint);
-                            });
-                        }
+                methods.add(executable);
+                returnTypes.add(utils.box(executable.getReturnType()));
+                handlers.add(endpoint);
+            });
+        }
 
-                        final TypeName routesReturnType =
-                                utils.greatestCommonSuperType(returnTypes);
+        final TypeName routesReturnType = utils.greatestCommonSuperType(returnTypes);
 
-                        unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
+        handlers.add(routesMethod(routesReturnType, methods));
 
-                        generated.addSuperinterface(
-                                utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
+        generated.addSuperinterface(utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
 
-                        return Result.combine(unverifiedHandlers.build()).map(handlers -> {
-                            handlers.forEach(h -> h.accept(generated));
-
-                            return JavaFile
-                                    .builder(packageName, generated.build())
-                                    .skipJavaLangImports(true)
-                                    .indent("    ")
-                                    .build();
-                        });
-                    });
-        });
+        return handlers.build();
     }
 
     private Consumer<Builder> routesMethod(
@@ -182,25 +174,16 @@ public class RsClassProcessor {
         };
     }
 
-    private Result<List<String>> path(final Element element) {
-        return utils
-                .path(element)
-                .map(p -> p.map(PathMirror::getValue).map(this::processPath))
-                .orElse(Result.ok(DEFAULT_PATH));
+    private List<String> path(final Element element) {
+        return utils.path(element).map(p -> processPath(p.getValue())).orElse(DEFAULT_PATH);
     }
 
-    private Result<List<String>> consumes(final Element element) {
-        return utils
-                .consumes(element)
-                .map(o -> o.map(v -> v.getValue()))
-                .orElseGet(() -> Result.ok(ImmutableList.of()));
+    private List<String> consumes(final Element element) {
+        return utils.consumes(element).map(ConsumesMirror::getValue).orElseGet(ImmutableList::of);
     }
 
-    private Result<List<String>> produces(final Element element) {
-        return utils
-                .produces(element)
-                .map(o -> o.map(v -> v.getValue()))
-                .orElseGet(() -> Result.ok(ImmutableList.of()));
+    private List<String> produces(final Element element) {
+        return utils.produces(element).map(ProducesMirror::getValue).orElseGet(ImmutableList::of);
     }
 
     private List<String> processPath(final String input) {
@@ -231,85 +214,68 @@ public class RsClassProcessor {
         return b.build();
     }
 
-    private Result<Consumer<TypeSpec.Builder>> endpointSetup(
+    private Consumer<TypeSpec.Builder> endpointSetup(
             final ExecutableElement endpoint, final FieldSpec instanceField,
             final List<String> root, final String method, final List<String> parentConsumes,
             final List<String> parentProduces,
             final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
-        final Result<MethodSpec> resultHandler =
-                handlerMethod(endpoint, instanceField, typeReferenceConstants);
-        final Result<MethodSpec> resultMapping =
-                mappingMethod(endpoint, instanceField, root, method, parentConsumes,
-                        parentProduces);
+        final MethodSpec handler = handlerMethod(endpoint, instanceField, typeReferenceConstants);
 
-        return Result.combineDifferent(resultHandler, resultMapping).map(v -> {
-            final MethodSpec handler = resultHandler.get();
-            final MethodSpec mapping = resultMapping.get();
+        final MethodSpec mapping =
+                mappingMethod(endpoint, root, method, parentConsumes, parentProduces);
 
-            return builder -> {
-                builder.addMethod(handler);
-                builder.addMethod(mapping);
-            };
-        });
+        return builder -> {
+            builder.addMethod(handler);
+            builder.addMethod(mapping);
+        };
     }
 
-    private Result<MethodSpec> mappingMethod(
-            final ExecutableElement endpoint, final FieldSpec instanceField,
-            final List<String> root, final String method, final List<String> parentConsumes,
-            final List<String> parentProduces
+    private MethodSpec mappingMethod(
+            final ExecutableElement endpoint, final List<String> root, final String method,
+            final List<String> parentConsumes, final List<String> parentProduces
     ) {
-        final Result<List<String>> resultPath = path(endpoint);
-        final Result<List<String>> resultConsumes = consumes(endpoint);
-        final Result<List<String>> resultProduces = produces(endpoint);
+        final List<String> path = path(endpoint);
 
-        final Result<?> combined =
-                Result.combineDifferent(resultPath, resultConsumes, resultProduces);
+        final List<String> consumes = ImmutableList.<String>builder()
+                .addAll(parentConsumes)
+                .addAll(consumes(endpoint))
+                .build();
 
-        return combined.map(v -> {
-            final List<String> path = resultPath.get();
+        final List<String> produces = ImmutableList.<String>builder()
+                .addAll(parentProduces)
+                .addAll(produces(endpoint))
+                .build();
 
-            final List<String> consumes = ImmutableList.<String>builder()
-                    .addAll(parentConsumes)
-                    .addAll(resultConsumes.get())
-                    .build();
+        final ChainStatement stmt = new ChainStatement().add("return ");
 
-            final List<String> produces = ImmutableList.<String>builder()
-                    .addAll(parentProduces)
-                    .addAll(resultProduces.get())
-                    .build();
+        final TypeName returnTypeName = TypeName.get(utils.box(endpoint.getReturnType()));
 
-            final ChainStatement stmt = new ChainStatement().add("return ");
+        stmt.add("$T.<$T>builder()", utils.rsMappingRaw(), returnTypeName);
 
-            final TypeName returnTypeName = TypeName.get(utils.box(endpoint.getReturnType()));
+        stmt.add(".method($S)", method);
+        stmt.addVarString(".path(%s)", ImmutableList.copyOf(Iterables.concat(root, path)));
 
-            stmt.add("$T.<$T>builder()", utils.rsMappingRaw(), returnTypeName);
+        if (utils.isVoid(endpoint.getReturnType())) {
+            stmt.add(".voidHandle(this::$L)", endpoint.getSimpleName().toString());
+        } else {
+            stmt.add(".handle(this::$L)", endpoint.getSimpleName().toString());
+        }
 
-            stmt.add(".method($S)", method);
-            stmt.addVarString(".path(%s)", ImmutableList.copyOf(Iterables.concat(root, path)));
+        stmt.addVarString(".consumes(%s)", consumes);
+        stmt.addVarString(".produces(%s)", produces);
+        stmt.add(".returnType(new $T(){})", utils.rsTypeReference(returnTypeName));
+        stmt.add(".build()");
 
-            if (utils.isVoid(endpoint.getReturnType())) {
-                stmt.add(".voidHandle(this::$L)", endpoint.getSimpleName().toString());
-            } else {
-                stmt.add(".handle(this::$L)", endpoint.getSimpleName().toString());
-            }
+        final MethodSpec.Builder mapping = MethodSpec.methodBuilder(utils.mappingMethod(endpoint));
+        mapping.addModifiers(Modifier.PUBLIC);
+        mapping.returns(utils.rsMapping(returnTypeName));
 
-            stmt.addVarString(".consumes(%s)", consumes);
-            stmt.addVarString(".produces(%s)", produces);
-            stmt.add(".returnType(new $T(){})", utils.rsTypeReference(returnTypeName));
-            stmt.add(".build()");
-
-            final MethodSpec.Builder mapping =
-                    MethodSpec.methodBuilder(utils.mappingMethod(endpoint));
-            mapping.addModifiers(Modifier.PUBLIC);
-            mapping.returns(utils.rsMapping(returnTypeName));
-
-            mapping.addStatement(stmt.format(), stmt.arguments());
-            return mapping.build();
-        });
+        mapping.addStatement(stmt.format(), stmt.arguments());
+        return mapping.build();
     }
 
-    private Result<MethodSpec> handlerMethod(
+    private MethodSpec handlerMethod(
             final ExecutableElement method, final FieldSpec instanceField,
             final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
@@ -324,18 +290,16 @@ public class RsClassProcessor {
         final ParameterSpec ctx =
                 ParameterSpec.builder(utils.rsRequestContext(), "ctx", Modifier.FINAL).build();
 
-        final ImmutableList.Builder<Result<Consumer<MethodSpec.Builder>>> consumers =
+        final ImmutableList.Builder<Consumer<MethodSpec.Builder>> consumers =
                 ImmutableList.builder();
         final ImmutableList.Builder<String> variables = ImmutableList.builder();
         final AtomicInteger payloadParameters = new AtomicInteger();
 
         for (final VariableElement parameter : method.getParameters()) {
-            final Result<Optional<DefaultValueMirror>> defaultValue = utils
-                    .defaultValue(parameter)
-                    .map(p -> p.map(v -> Optional.of(v)))
-                    .orElse(Result.ok(Optional.empty()));
+            final Optional<DefaultValueMirror> defaultValue =
+                    utils.defaultValue(parameter).map(Optional::of).orElseGet(Optional::empty);
 
-            final List<Result<Consumer<MethodSpec.Builder>>> consumer = new ArrayList<>();
+            final List<Consumer<MethodSpec.Builder>> consumer = new ArrayList<>();
 
             utils.pathParam(parameter).ifPresent(pathParam -> {
                 consumer.add(handlePathParam(ctx, variables, parameter, pathParam, defaultValue,
@@ -362,16 +326,15 @@ public class RsClassProcessor {
 
             if (TypeName.get(parameter.asType()).equals(utils.rsRequestContext())) {
                 variables.add("ctx");
-                consumer.add(Result.ok(builder -> {
+                consumer.add(builder -> {
                     // do nothing
-                }));
+                });
             }
 
             if (consumer.size() > 1) {
-                consumers.add(Result.brokenElement(
+                throw new BrokenElement(
                         "Only one of @PathParam, @QueryParam, or @HeaderParam may be present " +
-                                "at the same time", parameter));
-                continue;
+                                "at the same time", parameter);
             }
 
             if (consumer.isEmpty()) {
@@ -384,186 +347,166 @@ public class RsClassProcessor {
             consumers.addAll(consumer);
         }
 
-        return Result.combine(consumers.build()).map(factories -> {
-            handler.addParameter(ctx);
-            handler.addModifiers(Modifier.PUBLIC);
-            handler.returns(TypeName.get(method.getReturnType()));
+        handler.addParameter(ctx);
+        handler.addModifiers(Modifier.PUBLIC);
+        handler.returns(TypeName.get(method.getReturnType()));
 
-            for (final Consumer<MethodSpec.Builder> factory : factories) {
-                factory.accept(handler);
-            }
+        for (final Consumer<MethodSpec.Builder> factory : consumers.build()) {
+            factory.accept(handler);
+        }
 
-            handler.addStatement(
-                    (utils.isVoid(method.getReturnType()) ? "" : "return ") + "$N.$L($L)",
-                    instanceField, method.getSimpleName().toString(),
-                    PARAMETER_JOINER.join(variables.build()));
+        handler.addStatement((utils.isVoid(method.getReturnType()) ? "" : "return ") + "$N.$L($L)",
+                instanceField, method.getSimpleName().toString(),
+                PARAMETER_JOINER.join(variables.build()));
 
-            return handler.build();
-        });
+        return handler.build();
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handlePayload(
+    private Consumer<MethodSpec.Builder> handlePayload(
             final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
             final AtomicInteger payloadParameters, final VariableElement parameter,
-            final Result<Optional<DefaultValueMirror>> defaultValue,
+            final Optional<DefaultValueMirror> defaultValue,
             final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
         if (payloadParameters.get() > 1) {
-            return Result.brokenElement("There must only be one payload argument", parameter);
+            throw new BrokenElement("There must only be one payload argument", parameter);
         }
 
         if (utils.isList(parameter.asType())) {
-            return Result.brokenElement("Payload argument must not be list", parameter);
+            throw new BrokenElement("Payload argument must not be list", parameter);
         }
 
-        return defaultValue.map(def -> {
-            final Consumer<ChainStatement> get = stmt -> stmt.add(".getPayload()");
+        final Consumer<ChainStatement> get = stmt -> stmt.add(".getPayload()");
 
-            final Consumer<ChainStatement> handleAbsent = stmt -> {
-                if (def.isPresent()) {
-                    stmt.add(".orElseGet($N.provideDefaultPayload($S))", ctx, def.get());
-                } else {
-                    stmt.add(".orElseThrow(() -> new $T())", utils.rsMissingPayload());
-                }
-            };
+        final Consumer<ChainStatement> handleAbsent = stmt -> {
+            if (defaultValue.isPresent()) {
+                stmt.add(".orElseGet($N.provideDefaultPayload($S))", ctx, defaultValue.get());
+            } else {
+                stmt.add(".orElseThrow(() -> new $T())", utils.rsMissingPayload());
+            }
+        };
 
-            return provideArgument(ctx, variables, parameter, get, handleAbsent,
-                    typeReferenceConstants);
-        });
+        return provideArgument(ctx, variables, parameter, get, handleAbsent,
+                typeReferenceConstants);
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handlePathParam(
+    private Consumer<MethodSpec.Builder> handlePathParam(
             final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
-            final VariableElement parameter, final Result<PathParamMirror> unvPathParam,
-            final Result<Optional<DefaultValueMirror>> unvDefaultValue,
+            final VariableElement parameter, final PathParamMirror pathParam,
+            final Optional<DefaultValueMirror> defaultValue,
             final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
         if (utils.isList(parameter.asType())) {
-            return Result.brokenElement("Path parameter argument must not be list", parameter);
+            throw new BrokenElement("Path parameter argument must not be list", parameter);
         }
 
-        return Result.combineDifferent(unvPathParam, unvDefaultValue).map(v -> {
-            final PathParamMirror pathParam = unvPathParam.get();
-            final Optional<DefaultValueMirror> defaultValue = unvDefaultValue.get();
+        final Consumer<ChainStatement> get = stmt -> {
+            stmt.add(".getPathParameter($S)", pathParam.getValue());
+        };
 
-            final Consumer<ChainStatement> get = stmt -> {
-                stmt.add(".getPathParameter($S)", pathParam.getValue());
-            };
+        final Consumer<ChainStatement> handleAbsent = stmt -> {
+            if (defaultValue.isPresent()) {
+                stmt.add(".orElseGet($N.provideDefaultPathParameter($S, $S))", ctx,
+                        pathParam.getValue(), defaultValue.get().getValue());
+            } else {
+                stmt.add(".orElseThrow(() -> new $T($S))", utils.rsMissingPathParameter(),
+                        pathParam.getValue());
+            }
+        };
 
-            final Consumer<ChainStatement> handleAbsent = stmt -> {
-                if (defaultValue.isPresent()) {
-                    stmt.add(".orElseGet($N.provideDefaultPathParameter($S, $S))", ctx,
-                            pathParam.getValue(), defaultValue.get().getValue());
-                } else {
-                    stmt.add(".orElseThrow(() -> new $T($S))", utils.rsMissingPathParameter(),
-                            pathParam.getValue());
-                }
-            };
-
-            return provideArgument(ctx, variables, parameter, get, handleAbsent,
-                    typeReferenceConstants);
-        });
+        return provideArgument(ctx, variables, parameter, get, handleAbsent,
+                typeReferenceConstants);
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleQueryParam(
+    private Consumer<MethodSpec.Builder> handleQueryParam(
             final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
-            final VariableElement parameter, final Result<QueryParamMirror> unvQueryParam,
-            final Result<Optional<DefaultValueMirror>> unvDefaultValue,
+            final VariableElement parameter, final QueryParamMirror queryParam,
+            final Optional<DefaultValueMirror> defaultValue,
             final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
-        return Result.combineDifferent(unvQueryParam, unvDefaultValue).map(v -> {
-            final QueryParamMirror queryParam = unvQueryParam.get();
-            final Optional<DefaultValueMirror> defaultValue = unvDefaultValue.get();
+        final Consumer<ChainStatement> get = stmt -> {
+            stmt.add(".getQueryParameter($S)", queryParam.getValue());
+        };
 
-            final Consumer<ChainStatement> get = stmt -> {
-                stmt.add(".getQueryParameter($S)", queryParam.getValue());
-            };
+        final Consumer<ChainStatement> handleAbsent = stmt -> {
+            if (defaultValue.isPresent()) {
+                stmt.add(".orElseGet($N.provideDefaultQueryParameter($S, $S))", ctx,
+                        queryParam.getValue(), defaultValue.get().getValue());
+            } else {
+                stmt.add(".orElseThrow(() -> new $T($S))", utils.rsMissingQueryParameter(),
+                        queryParam.getValue());
+            }
+        };
 
-            final Consumer<ChainStatement> handleAbsent = stmt -> {
-                if (defaultValue.isPresent()) {
-                    stmt.add(".orElseGet($N.provideDefaultQueryParameter($S, $S))", ctx,
-                            queryParam.getValue(), defaultValue.get().getValue());
-                } else {
-                    stmt.add(".orElseThrow(() -> new $T($S))", utils.rsMissingQueryParameter(),
-                            queryParam.getValue());
-                }
-            };
+        final Consumer<ChainStatement> getList = stmt -> {
+            stmt.add(".getAllQueryParameters($S)", queryParam.getValue());
+        };
 
-            final Consumer<ChainStatement> getList = stmt -> {
-                stmt.add(".getAllQueryParameters($S)", queryParam.getValue());
-            };
-
-            return provideArgument(ctx, variables, parameter, get, handleAbsent,
-                    Optional.of(getList), typeReferenceConstants);
-        });
+        return provideArgument(ctx, variables, parameter, get, handleAbsent, Optional.of(getList),
+                typeReferenceConstants);
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleHeaderParam(
+    private Consumer<MethodSpec.Builder> handleHeaderParam(
             final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
-            final VariableElement parameter, final Result<HeaderParamMirror> unvHeaderParam,
-            final Result<Optional<DefaultValueMirror>> unvDefaultValue,
+            final VariableElement parameter, final HeaderParamMirror headerParam,
+            final Optional<DefaultValueMirror> defaultValue,
             final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
-        return Result.combineDifferent(unvHeaderParam, unvDefaultValue).map(v -> {
-            final HeaderParamMirror headerParam = unvHeaderParam.get();
-            final Optional<DefaultValueMirror> defaultValue = unvDefaultValue.get();
+        final Consumer<ChainStatement> get = stmt -> {
+            stmt.add(".getHeaderParameter($S)", headerParam.getValue());
+        };
 
-            final Consumer<ChainStatement> get = stmt -> {
-                stmt.add(".getHeaderParameter($S)", headerParam.getValue());
-            };
+        final Consumer<ChainStatement> handleAbsent = stmt -> {
+            if (defaultValue.isPresent()) {
+                stmt.add(".orElseGet($N.provideDefaultQueryParameter($S, $S))", ctx,
+                        headerParam.getValue(), defaultValue.get().getValue());
+            } else {
+                stmt.add(".orElseThrow(() -> new $T($S))", utils.rsMissingHeaderParameter(),
+                        headerParam.getValue());
+            }
+        };
 
-            final Consumer<ChainStatement> handleAbsent = stmt -> {
-                if (defaultValue.isPresent()) {
-                    stmt.add(".orElseGet($N.provideDefaultQueryParameter($S, $S))", ctx,
-                            headerParam.getValue(), defaultValue.get().getValue());
-                } else {
-                    stmt.add(".orElseThrow(() -> new $T($S))", utils.rsMissingHeaderParameter(),
-                            headerParam.getValue());
-                }
-            };
+        final Consumer<ChainStatement> getList = stmt -> {
+            stmt.add(".getAllHeaderParameters($S)", headerParam.getValue());
+        };
 
-            final Consumer<ChainStatement> getList = stmt -> {
-                stmt.add(".getAllHeaderParameters($S)", headerParam.getValue());
-            };
-
-            return provideArgument(ctx, variables, parameter, get, handleAbsent,
-                    Optional.of(getList), typeReferenceConstants);
-        });
+        return provideArgument(ctx, variables, parameter, get, handleAbsent, Optional.of(getList),
+                typeReferenceConstants);
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleSuspended(
+    private Consumer<MethodSpec.Builder> handleSuspended(
             final ParameterSpec ctx, ImmutableList.Builder<String> variables,
-            VariableElement parameter, Result<SuspendedMirror> suspended
+            VariableElement parameter, SuspendedMirror suspended
     ) {
         if (!TypeName.get(parameter.asType()).equals(utils.asyncResponse())) {
-            return Result.brokenElement("@Suspended arguments must be of type AsyncResponse",
+            throw new BrokenElement("@Suspended arguments must be of type AsyncResponse",
                     parameter);
         }
 
         variables.add(parameter.getSimpleName().toString());
 
-        return Result.ok(builder -> {
+        return builder -> {
             builder.addStatement("final $T $L = $N.asSuspended()", utils.asyncResponse(),
                     parameter.getSimpleName().toString(), ctx);
-        });
+        };
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleContext(
+    private Consumer<MethodSpec.Builder> handleContext(
             final ParameterSpec ctx, ImmutableList.Builder<String> variables,
-            VariableElement parameter, Result<ContextMirror> context
+            VariableElement parameter, ContextMirror context
     ) {
         variables.add(parameter.getSimpleName().toString());
 
         final TypeName contextType = TypeName.get(parameter.asType());
 
         if (contextType instanceof ParameterizedTypeName) {
-            return Result.brokenElement("@Context arguments must not be parameterized", parameter);
+            throw new BrokenElement("@Context arguments must not be parameterized", parameter);
         }
 
-        return Result.ok(builder -> {
+        return builder -> {
             builder.addStatement("final $T $L = $N.getContext($T.class)", contextType,
                     parameter.getSimpleName().toString(), ctx, contextType);
-        });
+        };
     }
 
     private Consumer<MethodSpec.Builder> provideArgument(

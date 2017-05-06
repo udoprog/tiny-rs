@@ -1,7 +1,34 @@
 package eu.toolchain.rs.processor;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.squareup.javapoet.AnnotationSpec;
+import com.squareup.javapoet.ClassName;
+import com.squareup.javapoet.ParameterizedTypeName;
+import com.squareup.javapoet.TypeName;
+import com.squareup.javapoet.WildcardTypeName;
+import eu.toolchain.rs.RsInjectBinding;
+import eu.toolchain.rs.RsMapping;
+import eu.toolchain.rs.RsMissingHeaderParameter;
+import eu.toolchain.rs.RsMissingPathParameter;
+import eu.toolchain.rs.RsMissingPayload;
+import eu.toolchain.rs.RsMissingQueryParameter;
+import eu.toolchain.rs.RsParameter;
+import eu.toolchain.rs.RsRequestContext;
+import eu.toolchain.rs.RsRoutesProvider;
 import eu.toolchain.rs.RsTypeReference;
+import eu.toolchain.rs.processor.annotation.ConsumesMirror;
 import eu.toolchain.rs.processor.annotation.ContextMirror;
+import eu.toolchain.rs.processor.annotation.DefaultValueMirror;
+import eu.toolchain.rs.processor.annotation.HeaderParamMirror;
+import eu.toolchain.rs.processor.annotation.PathMirror;
+import eu.toolchain.rs.processor.annotation.PathParamMirror;
+import eu.toolchain.rs.processor.annotation.ProducesMirror;
+import eu.toolchain.rs.processor.annotation.QueryParamMirror;
+import eu.toolchain.rs.processor.annotation.RsInjectBindingMirror;
+import eu.toolchain.rs.processor.annotation.SuspendedMirror;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -16,7 +43,6 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import javax.annotation.Generated;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
@@ -47,36 +73,6 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
-
-import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.squareup.javapoet.AnnotationSpec;
-import com.squareup.javapoet.ClassName;
-import com.squareup.javapoet.ParameterizedTypeName;
-import com.squareup.javapoet.TypeName;
-import com.squareup.javapoet.WildcardTypeName;
-
-import eu.toolchain.rs.RsInjectBinding;
-import eu.toolchain.rs.RsMapping;
-import eu.toolchain.rs.RsMissingHeaderParameter;
-import eu.toolchain.rs.RsMissingPathParameter;
-import eu.toolchain.rs.RsMissingPayload;
-import eu.toolchain.rs.RsMissingQueryParameter;
-import eu.toolchain.rs.RsParameter;
-import eu.toolchain.rs.RsRequestContext;
-import eu.toolchain.rs.RsRoutesProvider;
-import eu.toolchain.rs.processor.annotation.ConsumesMirror;
-import eu.toolchain.rs.processor.annotation.DefaultValueMirror;
-import eu.toolchain.rs.processor.annotation.HeaderParamMirror;
-import eu.toolchain.rs.processor.annotation.PathMirror;
-import eu.toolchain.rs.processor.annotation.PathParamMirror;
-import eu.toolchain.rs.processor.annotation.ProducesMirror;
-import eu.toolchain.rs.processor.annotation.QueryParamMirror;
-import eu.toolchain.rs.processor.annotation.RsInjectBindingMirror;
-import eu.toolchain.rs.processor.annotation.SuspendedMirror;
-import eu.toolchain.rs.processor.result.Result;
 import javax.ws.rs.core.Context;
 import lombok.RequiredArgsConstructor;
 
@@ -162,8 +158,8 @@ public class RsUtils {
     public RsUtils(Types types, Elements elements) {
         this.types = types;
         this.elements = elements;
-        this.annotations = ImmutableSet
-                .copyOf(ANNOTATION_NAMES.stream().map(elements::getTypeElement).iterator());
+        this.annotations = ImmutableSet.copyOf(
+                ANNOTATION_NAMES.stream().map(elements::getTypeElement).iterator());
     }
 
     public boolean isPrimitive(TypeMirror type) {
@@ -217,15 +213,17 @@ public class RsUtils {
         final ImmutableMap.Builder<String, AnnotationValue> builder = ImmutableMap.builder();
 
         for (Entry<? extends ExecutableElement, ? extends AnnotationValue> e : elements
-                .getElementValuesWithDefaults(a).entrySet()) {
+                .getElementValuesWithDefaults(a)
+                .entrySet()) {
             builder.put(e.getKey().getSimpleName().toString(), e.getValue());
         }
 
         return new AnnotationValues(element, a, builder.build());
     }
 
-    public <T extends Annotation> Optional<AnnotationMirror> annotation(final Element element,
-            final String name) {
+    public <T extends Annotation> Optional<AnnotationMirror> annotation(
+            final Element element, final String name
+    ) {
         for (final AnnotationMirror a : getAnnotations(element, name)) {
             return Optional.of(a);
         }
@@ -233,46 +231,46 @@ public class RsUtils {
         return Optional.empty();
     }
 
-    public Optional<Result<RsInjectBindingMirror>> rsInjectBinding(final Element element) {
-        return annotation(element, RS_INJECT_BINDING)
-                .map(a -> RsInjectBindingMirror.getFor(this, element, a));
+    public Optional<RsInjectBindingMirror> rsInjectBinding(final Element element) {
+        return annotation(element, RS_INJECT_BINDING).map(
+                a -> RsInjectBindingMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<PathMirror>> path(final Element element) {
+    public Optional<PathMirror> path(final Element element) {
         return annotation(element, PATH).map(a -> PathMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<ConsumesMirror>> consumes(final Element element) {
+    public Optional<ConsumesMirror> consumes(final Element element) {
         return annotation(element, CONSUMES).map(a -> ConsumesMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<ProducesMirror>> produces(final Element element) {
+    public Optional<ProducesMirror> produces(final Element element) {
         return annotation(element, PRODUCES).map(a -> ProducesMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<DefaultValueMirror>> defaultValue(final Element element) {
-        return annotation(element, DEFAULT_VALUE)
-                .map(a -> DefaultValueMirror.getFor(this, element, a));
+    public Optional<DefaultValueMirror> defaultValue(final Element element) {
+        return annotation(element, DEFAULT_VALUE).map(
+                a -> DefaultValueMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<PathParamMirror>> pathParam(final Element element) {
+    public Optional<PathParamMirror> pathParam(final Element element) {
         return annotation(element, PATH_PARAM).map(a -> PathParamMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<QueryParamMirror>> queryParam(final Element element) {
+    public Optional<QueryParamMirror> queryParam(final Element element) {
         return annotation(element, QUERY_PARAM).map(a -> QueryParamMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<HeaderParamMirror>> headerParam(final Element element) {
-        return annotation(element, HEADER_PARAM)
-                .map(a -> HeaderParamMirror.getFor(this, element, a));
+    public Optional<HeaderParamMirror> headerParam(final Element element) {
+        return annotation(element, HEADER_PARAM).map(
+                a -> HeaderParamMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<SuspendedMirror>> suspended(final Element element) {
+    public Optional<SuspendedMirror> suspended(final Element element) {
         return annotation(element, SUSPENDED).map(a -> SuspendedMirror.getFor(this, element, a));
     }
 
-    public Optional<Result<ContextMirror>> context(final Element element) {
+    public Optional<ContextMirror> context(final Element element) {
         return annotation(element, CONTEXT).map(a -> ContextMirror.getFor(this, element, a));
     }
 
@@ -310,14 +308,14 @@ public class RsUtils {
         Element element = root;
 
         do {
-            if (element.getKind() != ElementKind.CLASS
-                    && element.getKind() != ElementKind.INTERFACE) {
+            if (element.getKind() != ElementKind.CLASS &&
+                    element.getKind() != ElementKind.INTERFACE) {
                 throw new IllegalArgumentException(
                         String.format("Element is not interface or class (%s)", element));
             }
 
-            if (element.getEnclosingElement().getKind() == ElementKind.CLASS
-                    && !element.getModifiers().contains(Modifier.STATIC)) {
+            if (element.getEnclosingElement().getKind() == ElementKind.CLASS &&
+                    !element.getModifiers().contains(Modifier.STATIC)) {
                 throw new IllegalArgumentException(
                         String.format("Nested element must be static (%s)", element));
             }
@@ -464,7 +462,7 @@ public class RsUtils {
      * @param element Element to get annotations for.
      * @return An optional result containing the annotation.
      */
-    public Optional<Result<String>> method(final Element element) {
+    public Optional<String> method(final Element element) {
         final List<String> methods = new ArrayList<>();
 
         annotation(element, GET).ifPresent(v -> methods.add(HttpMethod.GET));
@@ -474,16 +472,18 @@ public class RsUtils {
         annotation(element, OPTIONS).ifPresent(v -> methods.add(HttpMethod.OPTIONS));
 
         if (methods.size() > 1) {
-            return Optional.of(Result.brokenElement(
-                    "Only one of @GET, @POST, @PUT, @DELETE, or @OPTIONS may be present", element));
+            throw new BrokenElement(
+                    "Only one of @GET, @POST, @PUT, @DELETE, or @OPTIONS may be present", element);
         }
 
-        return methods.stream().findFirst().map(Result::ok);
+        return methods.stream().findFirst();
     }
 
     public AnnotationSpec generatedAnnotation() {
-        return AnnotationSpec.builder(ClassName.get(GENERATED_PACKAGE, GENERATED))
-                .addMember("value", "$S", RS_PROCESSOR).build();
+        return AnnotationSpec
+                .builder(ClassName.get(GENERATED_PACKAGE, GENERATED))
+                .addMember("value", "$S", RS_PROCESSOR)
+                .build();
     }
 
     public AnnotationSpec injectAnnotation() {
@@ -494,8 +494,9 @@ public class RsUtils {
         return AnnotationSpec.builder(ClassName.get(OVERRIDE_PACKAGE, OVERRIDE)).build();
     }
 
-    private TypeName greatestCommonSuperType(final LinkedHashSet<TypeMirror> types,
-            final Set<TypeElement> seen) {
+    private TypeName greatestCommonSuperType(
+            final LinkedHashSet<TypeMirror> types, final Set<TypeElement> seen
+    ) {
         if (types.size() == 1) {
             return TypeName.get(types.iterator().next());
         }
@@ -545,7 +546,7 @@ public class RsUtils {
             }
 
             final Set<TypeElement> nextSeen =
-                    ImmutableSet.<TypeElement> builder().addAll(seen).add(raw).build();
+                    ImmutableSet.<TypeElement>builder().addAll(seen).add(raw).build();
             final TypeName type = greatestCommonSuperType(parameterTypes, nextSeen);
             parameters.add(type);
         }

@@ -1,17 +1,13 @@
 package eu.toolchain.rs.processor;
 
+import com.google.common.collect.ImmutableList;
 import java.util.List;
-
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.type.ErrorType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.SimpleAnnotationValueVisitor8;
-
-import com.google.common.collect.ImmutableList;
-
-import eu.toolchain.rs.processor.result.Result;
 import lombok.Data;
 
 @Data
@@ -24,7 +20,7 @@ public class AnnotationField {
         return value;
     }
 
-    public Result<TypeMirror> asTypeMirror() {
+    public TypeMirror asTypeMirror() {
         final TypeMirror typeMirror =
                 value.accept(new SimpleAnnotationValueVisitor8<TypeMirror, Void>() {
                     @Override
@@ -39,16 +35,14 @@ public class AnnotationField {
                 }, null);
 
         if (typeMirror == null) {
-            return Result.brokenAnnotationValue("Could not resolve type", element, annotation,
-                    value);
+            throw new BrokenAnnotationValue("Could not resolve type", element, annotation, value);
         }
 
         if (typeMirror instanceof ErrorType) {
-            return Result.brokenAnnotationValue("Could not resolve type", element, annotation,
-                    value);
+            throw new BrokenAnnotationValue("Could not resolve type", element, annotation, value);
         }
 
-        return Result.ok(typeMirror);
+        return typeMirror;
     }
 
     public List<String> asStringArray() {
@@ -144,16 +138,18 @@ public class AnnotationField {
                 for (final AnnotationValue val : vals) {
                     mirrors.add(
                             val.accept(new SimpleAnnotationValueVisitor8<AnnotationMirror, Void>() {
-                        public AnnotationMirror visitAnnotation(AnnotationMirror a, Void p) {
-                            return a;
-                        };
+                                public AnnotationMirror visitAnnotation(
+                                        AnnotationMirror a, Void p
+                                ) {
+                                    return a;
+                                }
 
-                        @Override
-                        protected AnnotationMirror defaultAction(Object o, Void p) {
-                            throw new IllegalArgumentException(String
-                                    .format("Could not convert %s to AnnotationMirror", value));
-                        }
-                    }, null));
+                                @Override
+                                protected AnnotationMirror defaultAction(Object o, Void p) {
+                                    throw new IllegalArgumentException(String.format(
+                                            "Could not convert %s to AnnotationMirror", value));
+                                }
+                            }, null));
                 }
 
                 return mirrors.build();

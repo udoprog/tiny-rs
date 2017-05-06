@@ -1,11 +1,15 @@
 package eu.toolchain.rs.processor;
 
+import com.google.auto.service.AutoService;
+import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
+import com.squareup.javapoet.JavaFile;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.Filer;
 import javax.annotation.processing.Messager;
@@ -20,14 +24,6 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
-
-import com.google.auto.service.AutoService;
-import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
-import com.squareup.javapoet.JavaFile;
-
-import eu.toolchain.rs.processor.result.Result;
 import lombok.Data;
 
 @AutoService(Processor.class)
@@ -63,8 +59,8 @@ public class RsProcessor extends AbstractProcessor {
      */
     void warnAboutBugEclipse300408() {
         messager.printMessage(Diagnostic.Kind.WARNING,
-                "processor might not work properly in Eclipse < 3.5, "
-                        + "see https://bugs.eclipse.org/bugs/show_bug.cgi?id=300408");
+                "processor might not work properly in Eclipse < 3.5, " +
+                        "see https://bugs.eclipse.org/bugs/show_bug.cgi?id=300408");
     }
 
     @Override
@@ -73,7 +69,9 @@ public class RsProcessor extends AbstractProcessor {
 
         if (env.processingOver()) {
             for (final DeferredProcessing d : deferred) {
-                d.getBroken().get().writeError(messager);
+                d.getError().ifPresent(error -> {
+                    error.writeTo(messager);
+                });
             }
 
             return false;
@@ -81,8 +79,8 @@ public class RsProcessor extends AbstractProcessor {
 
         // failing TypeElement's from last round
         if (!deferred.isEmpty()) {
-            elementsToProcess
-                    .addAll(deferred.stream().map(DeferredProcessing.refresh(utils)).iterator());
+            elementsToProcess.addAll(
+                    deferred.stream().map(DeferredProcessing.refresh(utils)).iterator());
             deferred.clear();
         }
 
@@ -91,15 +89,10 @@ public class RsProcessor extends AbstractProcessor {
         final List<Processed> processed = processElements(elementsToProcess.build());
 
         for (final Processed p : processed) {
-            final Result<JavaFile> serializer = p.getFile();
-
-            if (!serializer.isOk()) {
-                deferred.add(p.processing.withBroken(serializer));
-                continue;
-            }
+            final JavaFile serializer = p.getFile();
 
             try {
-                serializer.get().writeTo(filer);
+                serializer.writeTo(filer);
             } catch (final Exception e) {
                 messager.printMessage(Diagnostic.Kind.ERROR,
                         "Failed to write:\n" + Throwables.getStackTraceAsString(e),
@@ -113,8 +106,12 @@ public class RsProcessor extends AbstractProcessor {
     private Iterable<DeferredProcessing> discoverNewElements(final RoundEnvironment env) {
         final ImmutableSet.Builder<DeferredProcessing> newElements = ImmutableSet.builder();
 
-        final Iterator<Element> elements = Iterators.concat(utils.annotations().stream()
-                .map(env::getElementsAnnotatedWith).map(Set::iterator).iterator());
+        final Iterator<Element> elements = Iterators.concat(utils
+                .annotations()
+                .stream()
+                .map(env::getElementsAnnotatedWith)
+                .map(Set::iterator)
+                .iterator());
 
         while (elements.hasNext()) {
             addElement(newElements, elements.next());
@@ -123,8 +120,9 @@ public class RsProcessor extends AbstractProcessor {
         return newElements.build();
     }
 
-    private void addElement(final ImmutableSet.Builder<DeferredProcessing> newElements,
-            final Element e) {
+    private void addElement(
+            final ImmutableSet.Builder<DeferredProcessing> newElements, final Element e
+    ) {
         if (e instanceof TypeElement) {
             newElements.add(new DeferredProcessing((TypeElement) e, Optional.empty()));
             return;
@@ -152,24 +150,24 @@ public class RsProcessor extends AbstractProcessor {
         final List<Processed> processed = new ArrayList<>();
 
         for (final DeferredProcessing processing : elements) {
-            final Result<JavaFile> result = processElement(processing.getElement());
+            final JavaFile result = processElement(processing.getElement());
             processed.add(new Processed(result, processing));
         }
 
         return processed;
     }
 
-    Result<JavaFile> processElement(TypeElement element) {
+    JavaFile processElement(TypeElement element) {
         if (element.getKind() == ElementKind.CLASS || element.getKind() == ElementKind.INTERFACE) {
             return classProcessor.process(element);
         }
 
-        return Result.brokenElement("Unsupported type, expected class or interface", element);
+        throw new BrokenElement("Unsupported type, expected class or interface", element);
     }
 
     @Data
     public static class Processed {
-        final Result<JavaFile> file;
+        final JavaFile file;
         final DeferredProcessing processing;
     }
 }
