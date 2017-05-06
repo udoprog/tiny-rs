@@ -82,41 +82,47 @@ public class RsClassProcessor {
             final LinkedHashSet<TypeMirror> returnTypes = new LinkedHashSet<>();
             final ImmutableList.Builder<ExecutableElement> methods = ImmutableList.builder();
 
-            for (final Element enclosed : element.getEnclosedElements()) {
-                /* match methods */
-                if (enclosed.getKind() != ElementKind.METHOD) {
-                    continue;
+            return Result.combine(ImmutableList.of(consumes(element), produces(element))).flatMap(results -> {
+                final List<String> parentConsumes = results.get(0);
+                final List<String> parentProduces = results.get(1);
+
+                for (final Element enclosed : element.getEnclosedElements()) {
+                    /* match methods */
+                    if (enclosed.getKind() != ElementKind.METHOD) {
+                        continue;
+                    }
+
+                    /* skip inaccessible methods (e.g. static, private) */
+                    if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
+                        continue;
+                    }
+
+                    final ExecutableElement executable = (ExecutableElement) enclosed;
+
+                    /* annotated with a method annotation, like @GET */
+                    utils.method(executable).ifPresent(resultMethod -> {
+                        final Result<Consumer<Builder>> endpoint = resultMethod.flatMap(
+                                method -> endpointSetup(executable, instanceField, rootPath, method,
+                                        parentConsumes, parentProduces));
+
+                        methods.add(executable);
+                        returnTypes.add(utils.box(executable.getReturnType()));
+                        unverifiedHandlers.add(endpoint);
+                    });
                 }
 
-                /* skip inaccessible methods (e.g. static, private) */
-                if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
-                    continue;
-                }
+                final TypeName routesReturnType = utils.greatestCommonSuperType(returnTypes);
 
-                final ExecutableElement executable = (ExecutableElement) enclosed;
+                unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
 
-                /* annotated with a method annotation, like @GET */
-                utils.method(executable).ifPresent(resultMethod -> {
-                    final Result<Consumer<Builder>> endpoint = resultMethod.flatMap(
-                            method -> endpointSetup(executable, instanceField, rootPath, method));
+                generated.addSuperinterface(utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
 
-                    methods.add(executable);
-                    returnTypes.add(utils.box(executable.getReturnType()));
-                    unverifiedHandlers.add(endpoint);
+                return Result.combine(unverifiedHandlers.build()).map(handlers -> {
+                    handlers.forEach(h -> h.accept(generated));
+
+                    return JavaFile.builder(packageName, generated.build()).skipJavaLangImports(true)
+                                   .indent("    ").build();
                 });
-            }
-
-            final TypeName routesReturnType = utils.greatestCommonSuperType(returnTypes);
-
-            unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
-
-            generated.addSuperinterface(utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
-
-            return Result.combine(unverifiedHandlers.build()).map(handlers -> {
-                handlers.forEach(h -> h.accept(generated));
-
-                return JavaFile.builder(packageName, generated.build()).skipJavaLangImports(true)
-                        .indent("    ").build();
             });
         });
     }
@@ -187,10 +193,13 @@ public class RsClassProcessor {
     }
 
     private Result<Consumer<TypeSpec.Builder>> endpointSetup(final ExecutableElement endpoint,
-            final FieldSpec instanceField, final List<String> root, final String method) {
+            final FieldSpec instanceField, final List<String> root, final String method,
+            final List<String> parentConsumes, final List<String> parentProduces
+    ) {
         final Result<MethodSpec> resultHandler = handlerMethod(endpoint, instanceField);
         final Result<MethodSpec> resultMapping =
-                mappingMethod(endpoint, instanceField, root, method);
+                mappingMethod(endpoint, instanceField, root, method, parentConsumes,
+                        parentProduces);
 
         return Result.combineDifferent(resultHandler, resultMapping).map(v -> {
             final MethodSpec handler = resultHandler.get();
@@ -203,8 +212,11 @@ public class RsClassProcessor {
         });
     }
 
-    private Result<MethodSpec> mappingMethod(final ExecutableElement endpoint,
-            final FieldSpec instanceField, final List<String> root, final String method) {
+    private Result<MethodSpec> mappingMethod(
+            final ExecutableElement endpoint, final FieldSpec instanceField,
+            final List<String> root, final String method, final List<String> parentConsumes,
+            final List<String> parentProduces
+    ) {
         final Result<List<String>> resultPath = path(endpoint);
         final Result<List<String>> resultConsumes = consumes(endpoint);
         final Result<List<String>> resultProduces = produces(endpoint);
@@ -214,8 +226,16 @@ public class RsClassProcessor {
 
         return combined.map(v -> {
             final List<String> path = resultPath.get();
-            final List<String> consumes = resultConsumes.get();
-            final List<String> produces = resultProduces.get();
+
+            final List<String> consumes = ImmutableList.<String>builder()
+                    .addAll(parentConsumes)
+                    .addAll(resultConsumes.get())
+                    .build();
+
+            final List<String> produces = ImmutableList.<String>builder()
+                    .addAll(parentProduces)
+                    .addAll(resultProduces.get())
+                    .build();
 
             final ChainStatement stmt = new ChainStatement().add("return ");
 

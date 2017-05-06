@@ -22,7 +22,7 @@ public class ConsumesProduces_Binding implements RsRoutesProvider<RsMapping<Obje
     }
 
     public RsMapping<Object> a_mapping() {
-        return RsMapping.<Object>builder().method("GET").handle(this::a).consumes("a", "b").produces("c", "d").build();
+        return RsMapping.<Object>builder().method("GET").handle(this::a).consumes("c", "d", "a", "b").produces("a", "b", "c", "d").build();
     }
 
     @Override
