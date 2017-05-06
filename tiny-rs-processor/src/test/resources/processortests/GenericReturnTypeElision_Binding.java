@@ -3,10 +3,9 @@ package processortests;
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
 import eu.toolchain.rs.RsRoutesProvider;
-
+import eu.toolchain.rs.RsTypeReference;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.annotation.Generated;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
@@ -22,7 +21,7 @@ public class GenericReturnTypeElision_Binding implements RsRoutesProvider<RsMapp
     }
 
     public RsMapping<List<String>> a_mapping() {
-        return RsMapping.<List<String>>builder().method("GET").handle(this::a).build();
+        return RsMapping.<List<String>>builder().method("GET").handle(this::a).returnType(new RsTypeReference<List<String>>(){}).build();
     }
 
     public List<Integer> b(final RsRequestContext ctx) {
@@ -30,7 +29,7 @@ public class GenericReturnTypeElision_Binding implements RsRoutesProvider<RsMapp
     }
 
     public RsMapping<List<Integer>> b_mapping() {
-        return RsMapping.<List<Integer>>builder().method("GET").handle(this::b).build();
+        return RsMapping.<List<Integer>>builder().method("GET").handle(this::b).returnType(new RsTypeReference<List<Integer>>(){}).build();
     }
 
     @Override

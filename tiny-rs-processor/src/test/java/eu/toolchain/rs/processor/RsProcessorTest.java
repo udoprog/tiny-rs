@@ -11,7 +11,7 @@ import com.google.testing.compile.JavaFileObjects;
 
 public class RsProcessorTest {
     @Test
-    public void testParams() {
+    public void testQueryParams() {
         verifyProcessorFor("QueryParams");
     }
 
@@ -68,6 +68,11 @@ public class RsProcessorTest {
     @Test
     public void testContextArgument() {
         verifyProcessorFor("ContextArgument");
+    }
+
+    @Test
+    public void testPayload() {
+        verifyProcessorFor("Payload");
     }
 
     static void verifyProcessorFor(String name) {

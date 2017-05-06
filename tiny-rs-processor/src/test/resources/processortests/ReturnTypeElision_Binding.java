@@ -4,6 +4,7 @@ import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
 import eu.toolchain.rs.RsRoutesProvider;
 
+import eu.toolchain.rs.RsTypeReference;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -22,7 +23,7 @@ public class ReturnTypeElision_Binding implements RsRoutesProvider<RsMapping<? e
     }
 
     public RsMapping<Integer> getInteger_mapping() {
-        return RsMapping.<Integer>builder().method("GET").handle(this::getInteger).build();
+        return RsMapping.<Integer>builder().method("GET").handle(this::getInteger).returnType(new RsTypeReference<Integer>(){}).build();
     }
 
     public long getLong(final RsRequestContext ctx) {
@@ -30,7 +31,7 @@ public class ReturnTypeElision_Binding implements RsRoutesProvider<RsMapping<? e
     }
 
     public RsMapping<Long> getLong_mapping() {
-        return RsMapping.<Long>builder().method("GET").handle(this::getLong).build();
+        return RsMapping.<Long>builder().method("GET").handle(this::getLong).returnType(new RsTypeReference<Long>(){}).build();
     }
 
     @Override

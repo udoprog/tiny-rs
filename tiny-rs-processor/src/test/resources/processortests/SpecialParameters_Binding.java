@@ -3,6 +3,7 @@ package processortests;
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
 import eu.toolchain.rs.RsRoutesProvider;
+import eu.toolchain.rs.RsTypeReference;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,7 +24,7 @@ public class SpecialParameters_Binding implements RsRoutesProvider<RsMapping<?>>
     }
 
     public RsMapping<Object> requestContext_mapping() {
-        return RsMapping.<Object>builder().method("GET").handle(this::requestContext).build();
+        return RsMapping.<Object>builder().method("GET").handle(this::requestContext).returnType(new RsTypeReference<Object>(){}).build();
     }
 
     public void suspended(final RsRequestContext ctx) {
@@ -32,7 +33,7 @@ public class SpecialParameters_Binding implements RsRoutesProvider<RsMapping<?>>
     }
 
     public RsMapping<Void> suspended_mapping() {
-        return RsMapping.<Void>builder().method("GET").voidHandle(this::suspended).build();
+        return RsMapping.<Void>builder().method("GET").voidHandle(this::suspended).returnType(new RsTypeReference<Void>(){}).build();
     }
 
     @Override

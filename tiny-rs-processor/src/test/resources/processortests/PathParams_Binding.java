@@ -6,6 +6,7 @@ import eu.toolchain.rs.RsParameter;
 import eu.toolchain.rs.RsRequestContext;
 import eu.toolchain.rs.RsRoutesProvider;
 
+import eu.toolchain.rs.RsTypeReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -14,6 +15,8 @@ import javax.annotation.Generated;
 
 @Generated("eu.toolchain.rs.processor.RsProcessor")
 public class PathParams_Binding implements RsRoutesProvider<RsMapping<Object>> {
+    private static final RsTypeReference<PathParams.Interface> TR0 = new RsTypeReference<PathParams.Interface>(){};
+
     private final PathParams instance;
 
     public PathParams_Binding(final PathParams instance) {
@@ -23,13 +26,13 @@ public class PathParams_Binding implements RsRoutesProvider<RsMapping<Object>> {
     public Object a(final RsRequestContext ctx) {
         final String a = ctx.getPathParameter("a").orElseThrow(() -> new RsMissingPathParameter("a")).asString();
         final Optional<String> b = ctx.getPathParameter("b").map(RsParameter::asString);
-        final PathParams.Interface c = ctx.getPathParameter("c").orElseThrow(() -> new RsMissingQueryParameter("c")).asType(PathParams.Interface.class);
-        final Optional<PathParams.Interface> d = ctx.getPathParameter("d").map(v -> v.asType(PathParams.Interface.class));
+        final PathParams.Interface c = ctx.getPathParameter("c").orElseThrow(() -> new RsMissingQueryParameter("c")).asType(TR0);
+        final Optional<PathParams.Interface> d = ctx.getPathParameter("d").map(v -> v.asType(TR0));
         return instance.a(a, b, c, d);
     }
 
     public RsMapping<Object> a_mapping() {
-        return RsMapping.<Object>builder().method("GET").handle(this::a).build();
+        return RsMapping.<Object>builder().method("GET").handle(this::a).returnType(new RsTypeReference<Object>(){}).build();
     }
 
     @Override

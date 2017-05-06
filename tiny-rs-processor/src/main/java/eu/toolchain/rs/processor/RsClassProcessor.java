@@ -24,11 +24,14 @@ import eu.toolchain.rs.processor.annotation.SuspendedMirror;
 import eu.toolchain.rs.processor.result.Result;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
@@ -65,9 +68,10 @@ public class RsClassProcessor {
 
         generated.addAnnotation(utils.generatedAnnotation());
 
-        final FieldSpec instanceField =
-                FieldSpec.builder(TypeName.get(element.asType()), "instance")
-                        .addModifiers(Modifier.PRIVATE, Modifier.FINAL).build();
+        final FieldSpec instanceField = FieldSpec
+                .builder(TypeName.get(element.asType()), "instance")
+                .addModifiers(Modifier.PRIVATE, Modifier.FINAL)
+                .build();
 
         generated.addModifiers(Modifier.PUBLIC);
 
@@ -82,53 +86,81 @@ public class RsClassProcessor {
             final LinkedHashSet<TypeMirror> returnTypes = new LinkedHashSet<>();
             final ImmutableList.Builder<ExecutableElement> methods = ImmutableList.builder();
 
-            return Result.combine(ImmutableList.of(consumes(element), produces(element))).flatMap(results -> {
-                final List<String> parentConsumes = results.get(0);
-                final List<String> parentProduces = results.get(1);
+            return Result
+                    .combine(ImmutableList.of(consumes(element), produces(element)))
+                    .flatMap(results -> {
+                        final List<String> parentConsumes = results.get(0);
+                        final List<String> parentProduces = results.get(1);
 
-                for (final Element enclosed : element.getEnclosedElements()) {
-                    /* match methods */
-                    if (enclosed.getKind() != ElementKind.METHOD) {
-                        continue;
-                    }
+                        final AtomicInteger constantCount = new AtomicInteger();
+                        final Map<ParameterizedTypeName, FieldSpec> typeReferenceFields =
+                                new HashMap<>();
 
-                    /* skip inaccessible methods (e.g. static, private) */
-                    if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
-                        continue;
-                    }
+                        final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants =
+                                typeReference -> typeReferenceFields.computeIfAbsent(typeReference,
+                                        key -> {
+                                            final FieldSpec typeReferenceField = FieldSpec
+                                                    .builder(typeReference,
+                                                            "TR" + constantCount.getAndIncrement())
+                                                    .addModifiers(Modifier.PRIVATE, Modifier.STATIC,
+                                                            Modifier.FINAL)
+                                                    .initializer("new $T(){}", typeReference)
+                                                    .build();
 
-                    final ExecutableElement executable = (ExecutableElement) enclosed;
+                                            generated.addField(typeReferenceField);
+                                            return typeReferenceField;
+                                        });
 
-                    /* annotated with a method annotation, like @GET */
-                    utils.method(executable).ifPresent(resultMethod -> {
-                        final Result<Consumer<Builder>> endpoint = resultMethod.flatMap(
-                                method -> endpointSetup(executable, instanceField, rootPath, method,
-                                        parentConsumes, parentProduces));
+                        for (final Element enclosed : element.getEnclosedElements()) {
+                            /* match methods */
+                            if (enclosed.getKind() != ElementKind.METHOD) {
+                                continue;
+                            }
 
-                        methods.add(executable);
-                        returnTypes.add(utils.box(executable.getReturnType()));
-                        unverifiedHandlers.add(endpoint);
+                            /* skip inaccessible methods (e.g. static, private) */
+                            if (!Collections.disjoint(enclosed.getModifiers(), SKIP_MODIFIERS)) {
+                                continue;
+                            }
+
+                            final ExecutableElement executable = (ExecutableElement) enclosed;
+
+                            /* annotated with a method annotation, like @GET */
+                            utils.method(executable).ifPresent(resultMethod -> {
+                                final Result<Consumer<Builder>> endpoint = resultMethod.flatMap(
+                                        method -> endpointSetup(executable, instanceField, rootPath,
+                                                method, parentConsumes, parentProduces,
+                                                typeReferenceConstants));
+
+                                methods.add(executable);
+                                returnTypes.add(utils.box(executable.getReturnType()));
+                                unverifiedHandlers.add(endpoint);
+                            });
+                        }
+
+                        final TypeName routesReturnType =
+                                utils.greatestCommonSuperType(returnTypes);
+
+                        unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
+
+                        generated.addSuperinterface(
+                                utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
+
+                        return Result.combine(unverifiedHandlers.build()).map(handlers -> {
+                            handlers.forEach(h -> h.accept(generated));
+
+                            return JavaFile
+                                    .builder(packageName, generated.build())
+                                    .skipJavaLangImports(true)
+                                    .indent("    ")
+                                    .build();
+                        });
                     });
-                }
-
-                final TypeName routesReturnType = utils.greatestCommonSuperType(returnTypes);
-
-                unverifiedHandlers.add(Result.ok(routesMethod(routesReturnType, methods)));
-
-                generated.addSuperinterface(utils.rsRoutesProvider(utils.rsMapping(routesReturnType)));
-
-                return Result.combine(unverifiedHandlers.build()).map(handlers -> {
-                    handlers.forEach(h -> h.accept(generated));
-
-                    return JavaFile.builder(packageName, generated.build()).skipJavaLangImports(true)
-                                   .indent("    ").build();
-                });
-            });
         });
     }
 
-    private Consumer<Builder> routesMethod(final TypeName returnType,
-            final ImmutableList.Builder<ExecutableElement> methods) {
+    private Consumer<Builder> routesMethod(
+            final TypeName returnType, final ImmutableList.Builder<ExecutableElement> methods
+    ) {
         return builder -> {
             final MethodSpec.Builder method = MethodSpec.methodBuilder("routes");
             final ParameterizedTypeName routesReturnType = utils.list(utils.rsMapping(returnType));
@@ -151,17 +183,23 @@ public class RsClassProcessor {
     }
 
     private Result<List<String>> path(final Element element) {
-        return utils.path(element).map(p -> p.map(PathMirror::getValue).map(this::processPath))
+        return utils
+                .path(element)
+                .map(p -> p.map(PathMirror::getValue).map(this::processPath))
                 .orElse(Result.ok(DEFAULT_PATH));
     }
 
     private Result<List<String>> consumes(final Element element) {
-        return utils.consumes(element).map(o -> o.map(v -> v.getValue()))
+        return utils
+                .consumes(element)
+                .map(o -> o.map(v -> v.getValue()))
                 .orElseGet(() -> Result.ok(ImmutableList.of()));
     }
 
     private Result<List<String>> produces(final Element element) {
-        return utils.produces(element).map(o -> o.map(v -> v.getValue()))
+        return utils
+                .produces(element)
+                .map(o -> o.map(v -> v.getValue()))
                 .orElseGet(() -> Result.ok(ImmutableList.of()));
     }
 
@@ -176,9 +214,10 @@ public class RsClassProcessor {
     }
 
     private MethodSpec constructor(final TypeElement element, final FieldSpec instanceField) {
-        final ParameterSpec instance =
-                ParameterSpec.builder(TypeName.get(element.asType()), "instance")
-                        .addModifiers(Modifier.FINAL).build();
+        final ParameterSpec instance = ParameterSpec
+                .builder(TypeName.get(element.asType()), "instance")
+                .addModifiers(Modifier.FINAL)
+                .build();
 
         final MethodSpec.Builder b = MethodSpec.constructorBuilder();
         b.addModifiers(Modifier.PUBLIC);
@@ -192,11 +231,14 @@ public class RsClassProcessor {
         return b.build();
     }
 
-    private Result<Consumer<TypeSpec.Builder>> endpointSetup(final ExecutableElement endpoint,
-            final FieldSpec instanceField, final List<String> root, final String method,
-            final List<String> parentConsumes, final List<String> parentProduces
+    private Result<Consumer<TypeSpec.Builder>> endpointSetup(
+            final ExecutableElement endpoint, final FieldSpec instanceField,
+            final List<String> root, final String method, final List<String> parentConsumes,
+            final List<String> parentProduces,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
     ) {
-        final Result<MethodSpec> resultHandler = handlerMethod(endpoint, instanceField);
+        final Result<MethodSpec> resultHandler =
+                handlerMethod(endpoint, instanceField, typeReferenceConstants);
         final Result<MethodSpec> resultMapping =
                 mappingMethod(endpoint, instanceField, root, method, parentConsumes,
                         parentProduces);
@@ -239,8 +281,9 @@ public class RsClassProcessor {
 
             final ChainStatement stmt = new ChainStatement().add("return ");
 
-            stmt.add("$T.<$T>builder()", utils.rsMappingRaw(),
-                    TypeName.get(utils.box(endpoint.getReturnType())));
+            final TypeName returnTypeName = TypeName.get(utils.box(endpoint.getReturnType()));
+
+            stmt.add("$T.<$T>builder()", utils.rsMappingRaw(), returnTypeName);
 
             stmt.add(".method($S)", method);
             stmt.addVarString(".path(%s)", ImmutableList.copyOf(Iterables.concat(root, path)));
@@ -253,20 +296,23 @@ public class RsClassProcessor {
 
             stmt.addVarString(".consumes(%s)", consumes);
             stmt.addVarString(".produces(%s)", produces);
+            stmt.add(".returnType(new $T(){})", utils.rsTypeReference(returnTypeName));
             stmt.add(".build()");
 
             final MethodSpec.Builder mapping =
                     MethodSpec.methodBuilder(utils.mappingMethod(endpoint));
             mapping.addModifiers(Modifier.PUBLIC);
-            mapping.returns(utils.rsMapping(TypeName.get(utils.box(endpoint.getReturnType()))));
+            mapping.returns(utils.rsMapping(returnTypeName));
 
             mapping.addStatement(stmt.format(), stmt.arguments());
             return mapping.build();
         });
     }
 
-    private Result<MethodSpec> handlerMethod(final ExecutableElement method,
-            final FieldSpec instanceField) {
+    private Result<MethodSpec> handlerMethod(
+            final ExecutableElement method, final FieldSpec instanceField,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
         final MethodSpec.Builder handler =
                 MethodSpec.methodBuilder(method.getSimpleName().toString());
 
@@ -284,22 +330,26 @@ public class RsClassProcessor {
         final AtomicInteger payloadParameters = new AtomicInteger();
 
         for (final VariableElement parameter : method.getParameters()) {
-            final Result<Optional<DefaultValueMirror>> defaultValue = utils.defaultValue(parameter)
-                    .map(p -> p.map(v -> Optional.of(v))).orElse(Result.ok(Optional.empty()));
+            final Result<Optional<DefaultValueMirror>> defaultValue = utils
+                    .defaultValue(parameter)
+                    .map(p -> p.map(v -> Optional.of(v)))
+                    .orElse(Result.ok(Optional.empty()));
 
             final List<Result<Consumer<MethodSpec.Builder>>> consumer = new ArrayList<>();
 
             utils.pathParam(parameter).ifPresent(pathParam -> {
-                consumer.add(handlePathParam(ctx, variables, parameter, pathParam, defaultValue));
+                consumer.add(handlePathParam(ctx, variables, parameter, pathParam, defaultValue,
+                        typeReferenceConstants));
             });
 
             utils.queryParam(parameter).ifPresent(queryParam -> {
-                consumer.add(handleQueryParam(ctx, variables, parameter, queryParam, defaultValue));
+                consumer.add(handleQueryParam(ctx, variables, parameter, queryParam, defaultValue,
+                        typeReferenceConstants));
             });
 
             utils.headerParam(parameter).ifPresent(headerParam -> {
-                consumer.add(
-                        handleHeaderParam(ctx, variables, parameter, headerParam, defaultValue));
+                consumer.add(handleHeaderParam(ctx, variables, parameter, headerParam, defaultValue,
+                        typeReferenceConstants));
             });
 
             utils.suspended(parameter).ifPresent(suspended -> {
@@ -319,16 +369,16 @@ public class RsClassProcessor {
 
             if (consumer.size() > 1) {
                 consumers.add(Result.brokenElement(
-                        "Only one of @PathParam, @QueryParam, or @HeaderParam may be present "
-                                + "at the same time",
-                        parameter));
+                        "Only one of @PathParam, @QueryParam, or @HeaderParam may be present " +
+                                "at the same time", parameter));
                 continue;
             }
 
             if (consumer.isEmpty()) {
                 payloadParameters.incrementAndGet();
                 consumer.add(
-                        handlePayload(ctx, variables, payloadParameters, parameter, defaultValue));
+                        handlePayload(ctx, variables, payloadParameters, parameter, defaultValue,
+                                typeReferenceConstants));
             }
 
             consumers.addAll(consumer);
@@ -352,10 +402,12 @@ public class RsClassProcessor {
         });
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handlePayload(final ParameterSpec ctx,
-            final ImmutableList.Builder<String> variables, final AtomicInteger payloadParameters,
-            final VariableElement parameter,
-            final Result<Optional<DefaultValueMirror>> defaultValue) {
+    private Result<Consumer<MethodSpec.Builder>> handlePayload(
+            final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
+            final AtomicInteger payloadParameters, final VariableElement parameter,
+            final Result<Optional<DefaultValueMirror>> defaultValue,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
         if (payloadParameters.get() > 1) {
             return Result.brokenElement("There must only be one payload argument", parameter);
         }
@@ -375,14 +427,17 @@ public class RsClassProcessor {
                 }
             };
 
-            return provideArgument(ctx, variables, parameter, get, handleAbsent);
+            return provideArgument(ctx, variables, parameter, get, handleAbsent,
+                    typeReferenceConstants);
         });
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handlePathParam(final ParameterSpec ctx,
-            final ImmutableList.Builder<String> variables, final VariableElement parameter,
-            final Result<PathParamMirror> unvPathParam,
-            final Result<Optional<DefaultValueMirror>> unvDefaultValue) {
+    private Result<Consumer<MethodSpec.Builder>> handlePathParam(
+            final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
+            final VariableElement parameter, final Result<PathParamMirror> unvPathParam,
+            final Result<Optional<DefaultValueMirror>> unvDefaultValue,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
         if (utils.isList(parameter.asType())) {
             return Result.brokenElement("Path parameter argument must not be list", parameter);
         }
@@ -405,14 +460,17 @@ public class RsClassProcessor {
                 }
             };
 
-            return provideArgument(ctx, variables, parameter, get, handleAbsent);
+            return provideArgument(ctx, variables, parameter, get, handleAbsent,
+                    typeReferenceConstants);
         });
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleQueryParam(final ParameterSpec ctx,
-            final ImmutableList.Builder<String> variables, final VariableElement parameter,
-            final Result<QueryParamMirror> unvQueryParam,
-            final Result<Optional<DefaultValueMirror>> unvDefaultValue) {
+    private Result<Consumer<MethodSpec.Builder>> handleQueryParam(
+            final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
+            final VariableElement parameter, final Result<QueryParamMirror> unvQueryParam,
+            final Result<Optional<DefaultValueMirror>> unvDefaultValue,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
         return Result.combineDifferent(unvQueryParam, unvDefaultValue).map(v -> {
             final QueryParamMirror queryParam = unvQueryParam.get();
             final Optional<DefaultValueMirror> defaultValue = unvDefaultValue.get();
@@ -436,14 +494,16 @@ public class RsClassProcessor {
             };
 
             return provideArgument(ctx, variables, parameter, get, handleAbsent,
-                    Optional.of(getList));
+                    Optional.of(getList), typeReferenceConstants);
         });
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleHeaderParam(final ParameterSpec ctx,
-            final ImmutableList.Builder<String> variables, final VariableElement parameter,
-            final Result<HeaderParamMirror> unvHeaderParam,
-            final Result<Optional<DefaultValueMirror>> unvDefaultValue) {
+    private Result<Consumer<MethodSpec.Builder>> handleHeaderParam(
+            final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
+            final VariableElement parameter, final Result<HeaderParamMirror> unvHeaderParam,
+            final Result<Optional<DefaultValueMirror>> unvDefaultValue,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
         return Result.combineDifferent(unvHeaderParam, unvDefaultValue).map(v -> {
             final HeaderParamMirror headerParam = unvHeaderParam.get();
             final Optional<DefaultValueMirror> defaultValue = unvDefaultValue.get();
@@ -467,13 +527,14 @@ public class RsClassProcessor {
             };
 
             return provideArgument(ctx, variables, parameter, get, handleAbsent,
-                    Optional.of(getList));
+                    Optional.of(getList), typeReferenceConstants);
         });
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleSuspended(final ParameterSpec ctx,
-            ImmutableList.Builder<String> variables, VariableElement parameter,
-            Result<SuspendedMirror> suspended) {
+    private Result<Consumer<MethodSpec.Builder>> handleSuspended(
+            final ParameterSpec ctx, ImmutableList.Builder<String> variables,
+            VariableElement parameter, Result<SuspendedMirror> suspended
+    ) {
         if (!TypeName.get(parameter.asType()).equals(utils.asyncResponse())) {
             return Result.brokenElement("@Suspended arguments must be of type AsyncResponse",
                     parameter);
@@ -487,9 +548,10 @@ public class RsClassProcessor {
         });
     }
 
-    private Result<Consumer<MethodSpec.Builder>> handleContext(final ParameterSpec ctx,
-            ImmutableList.Builder<String> variables, VariableElement parameter,
-            Result<ContextMirror> context) {
+    private Result<Consumer<MethodSpec.Builder>> handleContext(
+            final ParameterSpec ctx, ImmutableList.Builder<String> variables,
+            VariableElement parameter, Result<ContextMirror> context
+    ) {
         variables.add(parameter.getSimpleName().toString());
 
         final TypeName contextType = TypeName.get(parameter.asType());
@@ -504,16 +566,23 @@ public class RsClassProcessor {
         });
     }
 
-    private Consumer<MethodSpec.Builder> provideArgument(final ParameterSpec ctx,
-            final ImmutableList.Builder<String> variables, final VariableElement variable,
-            final Consumer<ChainStatement> get, final Consumer<ChainStatement> handleAbsent) {
-        return provideArgument(ctx, variables, variable, get, handleAbsent, Optional.empty());
+    private Consumer<MethodSpec.Builder> provideArgument(
+            final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
+            final VariableElement variable, final Consumer<ChainStatement> get,
+            final Consumer<ChainStatement> handleAbsent,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
+        return provideArgument(ctx, variables, variable, get, handleAbsent, Optional.empty(),
+                typeReferenceConstants);
     }
 
-    private Consumer<MethodSpec.Builder> provideArgument(final ParameterSpec ctx,
-            final ImmutableList.Builder<String> variables, final VariableElement variable,
-            final Consumer<ChainStatement> get, final Consumer<ChainStatement> handleAbsent,
-            final Optional<Consumer<ChainStatement>> getList) {
+    private Consumer<MethodSpec.Builder> provideArgument(
+            final ParameterSpec ctx, final ImmutableList.Builder<String> variables,
+            final VariableElement variable, final Consumer<ChainStatement> get,
+            final Consumer<ChainStatement> handleAbsent,
+            final Optional<Consumer<ChainStatement>> getList,
+            final Function<ParameterizedTypeName, FieldSpec> typeReferenceConstants
+    ) {
         final TypeMirror variableTypeMirror = variable.asType();
         final String variableName = variable.getSimpleName().toString();
         final boolean optional = utils.isOptional(variableTypeMirror);
@@ -522,8 +591,10 @@ public class RsClassProcessor {
         final TypeName variableType;
 
         if (optional || list) {
-            variableType = TypeName.get(utils.firstParameter(variableTypeMirror).orElseThrow(
-                    () -> new RuntimeException("No parameter for type: " + variableTypeMirror)));
+            variableType = TypeName.get(utils
+                    .firstParameter(variableTypeMirror)
+                    .orElseThrow(() -> new RuntimeException(
+                            "No parameter for type: " + variableTypeMirror)));
         } else {
             variableType = TypeName.get(variableTypeMirror);
         }
@@ -537,7 +608,8 @@ public class RsClassProcessor {
             get.accept(stmt);
         } else if (list) {
             stmt.add("final $T $L = $N", utils.list(variableType), variableName, ctx);
-            getList.orElseThrow(() -> new IllegalStateException("providing list not supported"))
+            getList
+                    .orElseThrow(() -> new IllegalStateException("providing list not supported"))
                     .accept(stmt);
         } else {
             stmt.add("final $T $L = $N", variableType, variableName, ctx);
@@ -556,7 +628,8 @@ public class RsClassProcessor {
             } else if (variableType.equals(utils.uuidType())) {
                 stmt.add(".map($T::asUUID)", utils.rsParameter());
             } else {
-                stmt.add(".map(v -> v.asType($T.class))", variableType);
+                stmt.add(".map(v -> v.asType($N))",
+                        typeReferenceConstants.apply(utils.rsTypeReference(variableType)));
             }
 
             if (list) {
@@ -576,7 +649,8 @@ public class RsClassProcessor {
             } else if (variableType.equals(utils.uuidType())) {
                 stmt.add(".asUUID()");
             } else {
-                stmt.add(".asType($T.class)", variableType);
+                stmt.add(".asType($N)",
+                        typeReferenceConstants.apply(utils.rsTypeReference(variableType)));
             }
         }
 

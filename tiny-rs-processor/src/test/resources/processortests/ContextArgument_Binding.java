@@ -3,6 +3,7 @@ package processortests;
 import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
 import eu.toolchain.rs.RsRoutesProvider;
+import eu.toolchain.rs.RsTypeReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -22,7 +23,7 @@ public class ContextArgument_Binding implements RsRoutesProvider<RsMapping<Objec
     }
 
     public RsMapping<Object> get_mapping() {
-        return RsMapping.<Object>builder().method("GET").handle(this::get).build();
+        return RsMapping.<Object>builder().method("GET").handle(this::get).returnType(new RsTypeReference<Object>(){}).build();
     }
 
     @Override

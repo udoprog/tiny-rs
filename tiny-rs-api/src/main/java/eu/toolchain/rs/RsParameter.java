@@ -53,5 +53,5 @@ public interface RsParameter {
      * @param type The type to convert to.
      * @return A representation of the parameter matching the given type.
      */
-    <T> T asType(Class<T> type);
+    <T> T asType(RsTypeReference<T> type);
 }

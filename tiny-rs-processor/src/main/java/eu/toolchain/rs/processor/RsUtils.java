@@ -1,5 +1,6 @@
 package eu.toolchain.rs.processor;
 
+import eu.toolchain.rs.RsTypeReference;
 import eu.toolchain.rs.processor.annotation.ContextMirror;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
@@ -90,6 +91,7 @@ public class RsUtils {
 
     /* tiny-rs API types */
     public static final String RS_MAPPING = RsMapping.class.getCanonicalName();
+    public static final String RS_TYPE_REFERENCE = RsTypeReference.class.getCanonicalName();
     public static final String RS_REQUEST_CONTEXT = RsRequestContext.class.getCanonicalName();
     public static final String RS_PARAMETER = RsParameter.class.getCanonicalName();
     public static final String RS_MISSING_PATH_PARAMETER =
@@ -331,8 +333,16 @@ public class RsUtils {
         return ClassName.get(elements.getTypeElement(RS_MAPPING));
     }
 
+    public ClassName rsTypeReferenceRaw() {
+        return ClassName.get(elements.getTypeElement(RS_TYPE_REFERENCE));
+    }
+
     public ParameterizedTypeName rsMapping(final TypeName parameter) {
         return ParameterizedTypeName.get(rsMappingRaw(), parameter);
+    }
+
+    public ParameterizedTypeName rsTypeReference(final TypeName parameter) {
+        return ParameterizedTypeName.get(rsTypeReferenceRaw(), parameter);
     }
 
     public ClassName rsRequestContext() {

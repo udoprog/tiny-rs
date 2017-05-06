@@ -11,15 +11,17 @@ public class RsMapping<T> {
     private final RsFunction<RsRequestContext, T> handle;
     private final List<String> consumes;
     private final List<String> produces;
+    private final RsTypeReference<?> returnType;
 
     private RsMapping(final String method, final List<String> path,
             final RsFunction<RsRequestContext, T> handle, final List<String> consumes,
-            final List<String> produces) {
+            final List<String> produces, final RsTypeReference<?> returnType) {
         this.method = Objects.requireNonNull(method);
         this.path = Objects.requireNonNull(path);
         this.handle = Objects.requireNonNull(handle);
         this.consumes = Objects.requireNonNull(consumes);
         this.produces = Objects.requireNonNull(produces);
+        this.returnType = Objects.requireNonNull(returnType);
     }
 
     public String method() {
@@ -42,6 +44,10 @@ public class RsMapping<T> {
         return produces;
     }
 
+    public RsTypeReference<?> returnType() {
+        return returnType;
+    }
+
     public static <T> Builder<T> builder() {
         return new Builder<T>();
     }
@@ -52,6 +58,7 @@ public class RsMapping<T> {
         private RsFunction<RsRequestContext, T> handle;
         private List<String> consumes = Collections.emptyList();
         private List<String> produces = Collections.emptyList();
+        private RsTypeReference<?> returnType;
 
         public Builder<T> method(final String method) {
             this.method = Objects.requireNonNull(method);
@@ -84,8 +91,13 @@ public class RsMapping<T> {
             return this;
         }
 
+        public Builder<T> returnType(final RsTypeReference<?> returnType) {
+            this.returnType = returnType;
+            return this;
+        }
+
         public RsMapping<T> build() {
-            return new RsMapping<T>(method, path, handle, consumes, produces);
+            return new RsMapping<T>(method, path, handle, consumes, produces, returnType);
         }
 
         private <I> List<I> toList(final I[] input) {

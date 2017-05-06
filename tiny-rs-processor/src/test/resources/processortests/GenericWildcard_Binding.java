@@ -4,6 +4,7 @@ import eu.toolchain.rs.RsMapping;
 import eu.toolchain.rs.RsRequestContext;
 import eu.toolchain.rs.RsRoutesProvider;
 
+import eu.toolchain.rs.RsTypeReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -23,7 +24,7 @@ public class GenericWildcard_Binding implements RsRoutesProvider<RsMapping<Optio
     }
 
     public RsMapping<Optional<?>> test_mapping() {
-        return RsMapping.<Optional<?>>builder().method("GET").handle(this::test).build();
+        return RsMapping.<Optional<?>>builder().method("GET").handle(this::test).returnType(new RsTypeReference<Optional<?>>() {}).build();
     }
 
     @Override
